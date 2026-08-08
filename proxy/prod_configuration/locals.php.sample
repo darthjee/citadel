@@ -1,0 +1,5 @@
+<?php
+
+$backendHost = 'https://localhost:3030/';
+$staticRoot = '/home/citadel_placeholder/citadel_placeholder';
+$cacheFolder = './cache';

@@ -1,0 +1,14 @@
+version: 2
+
+# Known-safe dev-only placeholder credentials, following the same pattern
+# already used unflagged elsewhere in .env.dev.sample (CITADEL_PLACEHOLDER_SECRET_KEY,
+# CITADEL_PLACEHOLDER_MYSQL_PASSWORD): non-sensitive, publicly documented in
+# docs/agents/modules/auth.md, gated out of production entirely (the
+# migration that consumes it no-ops when STAGE=production — see
+# backend/src/database/migrations/20260824120004-auth-seed-demo-user.ts).
+secret:
+  ignored_matches:
+    - name: Demo-user dev/manual-testing seed password (non-production only)
+      match: citadel-placeholder-demo
+    - name: UserUpdateService spec fixture — non-secret placeholder digest value flagged as a false-positive "Username Password" pair (issue #89, historical commit 013dc43)
+      match: original-digest

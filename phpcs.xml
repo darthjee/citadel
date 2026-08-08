@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- See issue #240: replaces Codacy's default Squiz/PEAR standards with PSR-12. -->
+<ruleset name="Citadel Placeholder Proxy">
+    <description>PSR-12 coding standard for the Citadel Placeholder proxy PHP code (Tent extension and routing configuration), used by Codacy and the local proxy_lint service instead of the conflicting Squiz/PEAR defaults.</description>
+
+    <arg name="extensions" value="php"/>
+
+    <file>proxy/extension/lib</file>
+    <file>proxy/extension/tests</file>
+    <file>proxy/dev_configuration</file>
+    <file>proxy/prod_configuration</file>
+
+    <rule ref="PSR12"/>
+</ruleset>

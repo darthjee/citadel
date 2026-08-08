@@ -1,0 +1,14 @@
+web:
+  port: $NAVI_PORT
+workers:
+  quantity: 5
+  retry_cooldown: 10000
+  sleep: 500
+  max-retries: 50
+
+failure:
+  threshold: 0.0
+
+include:
+  - resources/clients.yml
+  # - resources/issues.yml   # TODO once the issues API exists, see docs/agents/cache-warmer.md

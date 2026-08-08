@@ -1,0 +1,336 @@
+version: 2.1
+workflows:
+  version: 2
+  test:
+    jobs:
+      # No DB service container yet: backend specs inject mocked TypeORM repositories rather than
+      # hitting a live database (see docs/agents/product.md). Add a cimg/mysql:8.0 service alongside
+      # the first spec that actually needs one.
+      - yarn_project:
+          name: backend_tests
+          dir: backend
+          image: darthjee/circleci_citadel_placeholder-base:0.0.1
+          script: coverage
+          step_name: Tests
+          upload_coverage: true
+          requires: [release-circleci_citadel_placeholder-base, release-circleci_citadel_placeholder-base-arm64]
+          filters: &all_tags
+            tags:
+              only: /.*/
+      - yarn_project:
+          name: backend_checks
+          dir: backend
+          image: darthjee/circleci_citadel_placeholder-base:0.0.1
+          script: lint
+          step_name: Check JS Lint
+          requires: [release-circleci_citadel_placeholder-base, release-circleci_citadel_placeholder-base-arm64]
+          filters: *all_tags
+      - yarn_project:
+          name: jasmine
+          dir: frontend
+          image: darthjee/circleci_node:0.2.1
+          script: coverage
+          step_name: Tests
+          upload_coverage: true
+          filters: *all_tags
+      # No `check_i18n` step: Citadel Placeholder has no i18n layer (citadel_placeholder.md §16 — optional, skipped for now).
+      - yarn_project:
+          name: frontend-checks
+          dir: frontend
+          image: darthjee/circleci_node:0.2.1
+          script: lint
+          step_name: Check JS Lint
+          filters: *all_tags
+      - proxy_extension_tests:
+          filters: *all_tags
+      - coverage-final:
+          requires: [backend_tests, jasmine]
+          filters: *all_tags
+      - build-and-release:
+          requires:
+            - backend_tests
+            - backend_checks
+            - jasmine
+            - frontend-checks
+            - proxy_extension_tests
+            - release-production_citadel_placeholder-base
+            - release-production_citadel_placeholder-base-arm64
+          filters: &tags_only
+            tags:
+              only: /\d+\.\d+\.\d+/
+            branches:
+              ignore: /.*/
+      - upload_proxy_files:
+          requires: [backend_tests, backend_checks, jasmine, frontend-checks, proxy_extension_tests]
+          filters: *tags_only
+      - upload_fe_files:
+          requires:
+            - backend_tests
+            - backend_checks
+            - jasmine
+            - frontend-checks
+            - proxy_extension_tests
+            - release-vite_citadel_placeholder-base
+            - release-vite_citadel_placeholder-base-arm64
+          filters: *tags_only
+      - upload_extension:
+          requires: [upload_proxy_files]
+          filters: *tags_only
+      - copy_proxy_configuration:
+          requires: [upload_proxy_files]
+          filters: *tags_only
+      - release:
+          requires:
+            - build-and-release
+            - upload_extension
+            - upload_proxy_files
+            - copy_proxy_configuration
+            - upload_fe_files
+            - release-vite_citadel_placeholder-base
+            - release-vite_citadel_placeholder-base-arm64
+          filters: *tags_only
+      # Matrix: 4 base images x {amd64, arm64}. Generated job names are release-<image> and
+      # release-<image>-arm64 (referenced by `requires:` above).
+      - release-image:
+          name: release-<< matrix.image >><< matrix.suffix >>
+          matrix:
+            parameters:
+              image: [citadel_placeholder-base, circleci_citadel_placeholder-base, production_citadel_placeholder-base, vite_citadel_placeholder-base]
+              suffix: ["", "-arm64"]
+          filters: *all_tags
+commands:
+  # Keeps only the requested project folder (backend or frontend) at the checkout root and
+  # installs its dependencies. Shared by yarn_project and upload_fe_files.
+  setup_project:
+    parameters:
+      dir:
+        type: enum
+        enum: [backend, frontend]
+    steps:
+      - run:
+          name: Set folder
+          command: |
+            case "<< parameters.dir >>" in
+              backend) other=frontend ;;
+              *) other=backend ;;
+            esac
+            rm "$other" -rf; cp << parameters.dir >>/* ./ -r; rm << parameters.dir >> -rf
+      - run:
+          name: Yarn install
+          command: yarn install
+  # Template-only escape hatch: when the CircleCI project sets CITADEL_SKIP_RELEASE=true (only the
+  # template repo does), release jobs end green without doing anything. Projects built from the
+  # template never set it, so they release normally.
+  skip_release_if_disabled:
+    steps:
+      - run:
+          name: Skip release if CITADEL_SKIP_RELEASE=true
+          command: |
+            if [ "$CITADEL_SKIP_RELEASE" = "true" ]; then
+              echo "CITADEL_SKIP_RELEASE=true, skipping release job."
+              circleci-agent step halt
+            fi
+jobs:
+  # Minimal bootstrap CI: backend, frontend and proxy-extension tests/lint. The release chain
+  # (build/upload/deploy) lives further down in this same file, gated to semver tag pushes only.
+  # Every release-type job (including release-image) halts green when CITADEL_SKIP_RELEASE=true
+  # (see skip_release_if_disabled).
+  #
+  # Backend/frontend tests and lint are all instances of this one job (see the workflow entries
+  # above): checkout, keep only `dir`, yarn install, run `npm run <script>`, and optionally upload
+  # the partial coverage report to Codacy (best-effort).
+  yarn_project:
+    parameters:
+      dir:
+        type: enum
+        enum: [backend, frontend]
+      image:
+        type: string
+      script:
+        type: string
+      step_name:
+        type: string
+        default: Tests
+      upload_coverage:
+        type: boolean
+        default: false
+    docker:
+      - image: << parameters.image >>
+    steps:
+      - checkout
+      - setup_project:
+          dir: << parameters.dir >>
+      - run:
+          name: << parameters.step_name >>
+          command: npm run << parameters.script >>
+      - when:
+          condition: << parameters.upload_coverage >>
+          steps:
+            - run:
+                name: Upload coverage to Codacy
+                command: bash <(curl -Ls https://coverage.codacy.com/get.sh) report --partial -r coverage/lcov.info || true
+
+  # Finalizes the aggregated Codacy coverage report once both partial uploads
+  # (backend_tests, jasmine) have completed. Reuses circleci_citadel_placeholder-base since the
+  # get.sh uploader only needs bash/curl and the job doesn't touch repository files.
+  coverage-final:
+    docker:
+      - image: darthjee/circleci_citadel_placeholder-base:0.0.1
+    steps:
+      - run:
+          name: Finalize Codacy coverage
+          command: bash <(curl -Ls https://coverage.codacy.com/get.sh) final || true
+
+  proxy_extension_tests:
+    docker:
+      - image: darthjee/tent-test:0.10.4
+    working_directory: /home/app/app
+    steps:
+      - checkout:
+          path: /tmp/checkout
+      - run:
+          name: Copy extension into place
+          command: cp -r /tmp/checkout/proxy/extension/. /var/www/html/extension/
+      - run:
+          name: Tests
+          command: vendor/bin/phpunit --bootstrap /var/www/html/extension/tests/bootstrap.php /var/www/html/extension/tests
+
+  # Multi-arch (amd64 + arm64) publish of Citadel Placeholder's 4 base images. Instantiated once via a workflow `matrix` (image x suffix). Runs on
+  # tag builds only — bin/image.sh's skip_if_not_tag/skip_if_unchanged decide whether to actually
+  # build/push, unless FORCE_IMAGE_BUILD bypasses those guards. CITADEL_SKIP_RELEASE=true halts
+  # the job before any of that (FORCE_IMAGE_BUILD does not override it).
+  #
+  # `suffix` is "" for amd64 or "-arm64" for arm64; the release step strips the leading "-" so
+  # bin/image.sh keeps receiving an empty arch (amd64) or "arm64".
+  release-image:
+    parameters:
+      image:
+        type: string
+      suffix:
+        type: string
+        default: ""
+    machine: true
+    steps:
+      - skip_release_if_disabled
+      - checkout
+      - run:
+          name: Set up QEMU
+          command: bin/image.sh qemu << parameters.image >>
+      - run:
+          name: Release
+          command: |
+            SUFFIX='<< parameters.suffix >>'
+            bin/image.sh push << parameters.image >> "${SUFFIX#-}"
+
+  # Deploys the backend to Render: points the service's branch at the tag that triggered this
+  # workflow, triggers a deploy, and blocks (watch_deployment, in scripts/deploy.sh) until it
+  # reaches "live". Runs on `machine: true` since scripts/render.sh/scripts/deploy.sh only need
+  # curl/jq, already present on the machine executor.
+  build-and-release:
+    machine: true
+    steps:
+      - skip_release_if_disabled
+      - checkout
+      - run:
+          name: Update Render Deploy Branch
+          command: scripts/deploy.sh update_deploy_branch
+      - run:
+          name: Trigger Deploy
+          command: scripts/deploy.sh deploy
+
+  # Uploads the Tent proxy runtime (/var/www/html/) to the SSH deploy host's workspace-scoped
+  # temp dir — staged, not yet swapped live (see the `release` job below).
+  upload_proxy_files:
+    docker:
+      - image: darthjee/tent:0.10.4
+    working_directory: /home/app/app
+    steps:
+      - skip_release_if_disabled
+      - checkout
+      - run:
+          name: Generate key file
+          command: bin/deploy_frontend.sh generate_key_file
+      - run:
+          name: Upload proxy files
+          command: SOURCE=/var/www/html/ bin/deploy_frontend.sh upload
+
+  # Uploads the production proxy configuration, then copies over server-side state that only
+  # ever lives on the host (locals.php with real secrets, and .htaccess for the Apache front
+  # end) so the atomic swap doesn't wipe them.
+  copy_proxy_configuration:
+    docker:
+      - image: darthjee/tent:0.10.4
+    working_directory: /home/app/app
+    steps:
+      - skip_release_if_disabled
+      - checkout
+      - run:
+          name: Generate key file
+          command: bin/deploy_frontend.sh generate_key_file
+      - run:
+          name: Upload proxy configuration
+          command: SOURCE=proxy/prod_configuration/ DEPLOY_PATH=configuration/ bin/deploy_frontend.sh upload
+      - run:
+          name: Setup locals
+          command: TARGET=configuration/locals.php DEPLOY_PATH=configuration/ bin/deploy_frontend.sh copy_files
+      - run:
+          name: Setup .htaccess
+          command: TARGET=.htaccess DEPLOY_PATH=./ bin/deploy_frontend.sh copy_files
+
+  # Uploads the Tent proxy extension, stripped of its test suite (not needed at runtime).
+  upload_extension:
+    docker:
+      - image: darthjee/tent:0.10.4
+    working_directory: /home/app/app
+    steps:
+      - skip_release_if_disabled
+      - checkout
+      - run:
+          name: Generate key file
+          command: bin/deploy_frontend.sh generate_key_file
+      - run:
+          name: Remove test files
+          command: rm -rf proxy/extension/tests/
+      - run:
+          name: Upload proxy extension
+          command: SOURCE=proxy/extension/ DEPLOY_PATH=extension/ bin/deploy_frontend.sh upload
+
+  # Builds the Vite frontend and uploads the static build output to the SSH deploy host's
+  # workspace-scoped temp dir — staged, not yet swapped live (see the `release` job below).
+  upload_fe_files:
+    docker:
+      - image: darthjee/vite_citadel_placeholder-base:0.0.1
+    steps:
+      - skip_release_if_disabled
+      - checkout
+      - setup_project:
+          dir: frontend
+      - run:
+          name: Build assets
+          command: bin/deploy_frontend.sh build
+      - run:
+          name: Generate key file
+          command: bin/deploy_frontend.sh generate_key_file
+      - run:
+          name: Generate folder
+          command: DEPLOY_PATH=static/ bin/deploy_frontend.sh generate_folder
+      - run:
+          name: Upload assets
+          command: SOURCE=dist/ DEPLOY_PATH=static/ bin/deploy_frontend.sh upload
+
+  # Atomic swap: only runs once every upload/build job above (and the backend's
+  # build-and-release, which blocks until Render reports "live") has succeeded, so frontend,
+  # proxy, and backend never go live out of sync with each other. If anything upstream fails,
+  # this job simply never runs and the previously-live build keeps serving unchanged.
+  release:
+    docker:
+      - image: darthjee/vite_citadel_placeholder-base:0.0.1
+    steps:
+      - skip_release_if_disabled
+      - checkout
+      - run:
+          name: Generate key file
+          command: bin/deploy_frontend.sh generate_key_file
+      - run:
+          name: Release assets
+          command: bin/deploy_frontend.sh release

@@ -1,0 +1,9 @@
+# CVE-2026-35515 — @nestjs/core Server-Sent Events (SSE) injection.
+# Accepted: Citadel Placeholder's backend has no @Sse() routes/EventSource endpoints
+# anywhere in backend/src (grep for `Sse` finds none), so this CVE's attack
+# surface doesn't apply. 10.4.22 is already the latest patch on the 10.x
+# line (confirmed via `npm view @nestjs/core versions` — no newer 10.x
+# patch exists); a fix requires the 11.x major, which is a coordinated
+# upgrade across every @nestjs/* package, out of scope for now.
+# Revisit once any SSE use lands, or when a 10.x backport becomes available.
+CVE-2026-35515

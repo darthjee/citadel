@@ -1,0 +1,5 @@
+namespace: $NAVI_NAMEPACE
+clients:
+  default:
+    base_url: $CITADEL_PLACEHOLDER_PRODUCTION_URL
+    timeout: 20000

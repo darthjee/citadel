@@ -1,0 +1,166 @@
+version: '3.8'
+
+services:
+  citadel_placeholder_mysql:
+    image: mysql:9.3.0
+    container_name: citadel_placeholder_mysql
+    env_file: .env
+    environment:
+      MYSQL_DATABASE: citadel_placeholder
+      MYSQL_USER: citadel_placeholder
+      MYSQL_PASSWORD: citadel_placeholder
+      MYSQL_ROOT_PASSWORD: citadel_placeholder
+    ports:
+      - 0.0.0.0:$CITADEL_PLACEHOLDER_MYSQL_PORT:3306
+    volumes:
+      - ./docker_volumes/mysql_data:/var/lib/mysql
+
+  #################### Base (Node build — Express + Yarn) ####################
+
+  base: &base
+    image: darthjee/citadel_placeholder   # local tag only — not pushed to Docker Hub
+    volumes:
+      - ./backend:/home/node/app
+    links:
+      - citadel_placeholder_mysql:mysql
+    env_file: .env
+
+  base_build:
+    <<: *base
+    build:
+      context: .
+      dockerfile: dockerfiles/citadel_placeholder/Dockerfile
+    command: echo done
+
+  base_prod: &base_prod
+    image: darthjee/production_citadel_placeholder
+    links:
+      - citadel_placeholder_mysql:mysql
+    env_file: .env.prod
+
+  base_prod_build:
+    <<: *base_prod
+    build:
+      context: .
+      dockerfile: dockerfiles/production_citadel_placeholder/Dockerfile
+    command: echo done
+
+  #################### DEV CONTAINERS ####################
+
+  citadel_placeholder_app:
+    <<: *base
+    container_name: citadel_placeholder_app
+    # ./backend is bind-mounted over the image's /home/node/app (see the `base`
+    # anchor above), so the image's own dist/ would go stale as soon as source
+    # changes — run Nest's watch-mode build against the live-mounted source
+    # instead of relying on a one-shot `yarn build && node dist/main.js`.
+    command: yarn start:dev
+    depends_on:
+      - base_build
+      - citadel_placeholder_mysql
+      - citadel_placeholder_phpmyadmin
+    ports:
+      - 0.0.0.0:3030:8080
+    environment:
+      - CITADEL_PLACEHOLDER_MYSQL_PORT=3306
+
+  citadel_placeholder_tests:
+    <<: *base
+    container_name: citadel_placeholder_tests
+    depends_on:
+      - base_build
+
+  citadel_placeholder_prod_app:
+    <<: *base_prod
+    container_name: citadel_placeholder_prod_app
+    depends_on:
+      - base_prod_build
+      - citadel_placeholder_mysql
+    ports:
+      - 0.0.0.0:3030:8080
+    environment:
+      - CITADEL_PLACEHOLDER_MYSQL_PORT=3306
+      - STAGE=production
+
+  citadel_placeholder_fe:
+    container_name: citadel_placeholder_fe
+    build:
+      context: .
+      dockerfile: dockerfiles/vite_citadel_placeholder/Dockerfile
+    volumes:
+      - ./frontend:/home/node/app
+      - ./docker_volumes/node_modules:/home/node/app/node_modules
+      - ./docker_volumes/static:/home/node/app/dist
+    ports:
+      - 0.0.0.0:3010:8080
+    env_file: .env
+
+  citadel_placeholder_proxy:
+    image: darthjee/tent:0.10.4
+    container_name: citadel_placeholder_proxy
+    env_file: .env
+    volumes:
+      - ./docker_volumes/static/:/var/www/html/static/
+      - ./proxy/dev_configuration:/var/www/html/configuration/
+      - ./docker_volumes/proxy_cache:/var/www/html/cache/
+      - ./proxy/extension:/var/www/html/extension
+    links:
+      - citadel_placeholder_app:backend
+      - citadel_placeholder_fe:frontend
+    depends_on:
+      - citadel_placeholder_app
+      - citadel_placeholder_fe
+    ports:
+      - 0.0.0.0:3000:80
+
+  proxy_tests:
+    image: darthjee/tent-test:0.10.4
+    volumes:
+      - ./proxy/extension:/var/www/html/extension
+    command: vendor/bin/phpunit --bootstrap /var/www/html/extension/tests/bootstrap.php /var/www/html/extension/tests
+
+  # PSR-12 PHPCS check for proxy/ (ruleset: root phpcs.xml; the same file Codacy reads)
+  proxy_lint:
+    image: darthjee/tent-test:0.10.4
+    volumes:
+      - ./phpcs.xml:/repo/phpcs.xml:ro
+      - ./proxy:/repo/proxy:ro
+    command: vendor/bin/phpcs --standard=/repo/phpcs.xml
+
+  citadel_placeholder_navi:
+    image: darthjee/navi-hey:1.6.1
+    volumes:
+      - ./navi/:/home/node/app
+    command: navi-hey --config navi_config.yaml
+    environment:
+      - CITADEL_PLACEHOLDER_PRODUCTION_URL=$CITADEL_PLACEHOLDER_PRODUCTION_URL
+      - NAVI_PORT=3000
+      - NAVI_NAMEPACE=$NAVI_NAMEPACE
+    ports:
+      - 0.0.0.0:3100:3000
+
+  # CircleCI CLI, for validating/processing .circleci/config.yml without installing anything on
+  # the host, e.g.:
+  #   docker-compose run --rm circleci config validate
+  #   docker-compose run --rm circleci config process .circleci/config.yml
+  circleci:
+    image: circleci/circleci-cli:1.0.50849-alpine
+    working_dir: /repo
+    volumes:
+      - ./.circleci:/repo/.circleci:ro
+    entrypoint: circleci
+
+  citadel_placeholder_phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: citadel_placeholder_phpmyadmin
+    depends_on: [citadel_placeholder_mysql]
+    links:
+      - citadel_placeholder_mysql:mysql
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_ROOT_PASSWORD: citadel_placeholder
+      MYSQL_PASSWORD: citadel_placeholder
+    ports:
+      - 0.0.0.0:3050:80

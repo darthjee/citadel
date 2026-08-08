@@ -1,0 +1,12 @@
+Hi,
+
+We received a request to reset the password for your Citadel Placeholder account.
+
+Open this link to choose a new password:
+{{resetUrl}}
+
+This link can only be used once, and it expires a short time after it was
+requested. If it has already expired, request a new one from the sign-in page.
+
+If you didn't ask to reset your password, you can safely ignore this email —
+your password won't change.

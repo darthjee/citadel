@@ -1,0 +1,86 @@
+---
+# Codacy project configuration. See https://docs.codacy.com/related-tools-integration/coding-standards/codacy-configuration-file/
+#
+# Scoped, narrow exclusions only — never a blanket disable of a whole engine/category. Each
+# entry below documents exactly why it's excluded, so future contributors can tell a deliberate
+# suppression from an oversight.
+engines:
+  pmd:
+    exclude_paths:
+      # PMD's ecmascript module misparses private class methods/fields (`static async
+      # #method() {}`) as a redundant nested block ("Unnecessary block."), flagging the method
+      # body itself — a parser limitation with this newer JS syntax, not a real code smell. The
+      # file below uses private methods extensively; see PR #33 / issue #30 for the finding
+      # this was added to resolve (HeaderController.js:27).
+      - 'frontend/assets/js/components/common/header/controllers/HeaderController.js'
+  # The same ESLint exclusions are repeated under each of Codacy's ESLint tool keys (`eslint`,
+  # `eslint-8`, `eslint-9`), since which one analyses this repo isn't pinned down; keep the
+  # three lists identical.
+  eslint:
+    exclude_paths:
+      # Codacy's base `no-unused-vars` misreads TypeScript constructor parameter properties
+      # (`constructor(readonly userId: number) {}`) as unused parameters — the parameter
+      # property *is* the declaration. The repo's own ESLint (backend/eslint.config.mjs) turns
+      # the base rule off for TS and uses `@typescript-eslint/no-unused-vars`, which reports
+      # nothing here. Listed file by file (no glob) so the sibling
+      # password-recovery-requested.listener.ts stays analysed. See issue #225.
+      - 'backend/src/auth/events/authorization-request-approved.event.ts'
+      - 'backend/src/auth/events/authorization-request-created.event.ts'
+      - 'backend/src/auth/events/authorization-request-denied.event.ts'
+      - 'backend/src/auth/events/authorization-request-logged.event.ts'
+      - 'backend/src/auth/events/password-recovery-requested.event.ts'
+      - 'backend/src/auth/events/user-registered.event.ts'
+      # `@typescript-eslint/no-extraneous-class` flags LoggingModule's empty class body, but an
+      # empty class is how a decorated NestJS `@Module` is declared. See issue #225.
+      - 'backend/src/core/logging.module.ts'
+  eslint-8:
+    exclude_paths:
+      # Codacy's base `no-unused-vars` misreads TypeScript constructor parameter properties
+      # (`constructor(readonly userId: number) {}`) as unused parameters — the parameter
+      # property *is* the declaration. The repo's own ESLint (backend/eslint.config.mjs) turns
+      # the base rule off for TS and uses `@typescript-eslint/no-unused-vars`, which reports
+      # nothing here. Listed file by file (no glob) so the sibling
+      # password-recovery-requested.listener.ts stays analysed. See issue #225.
+      - 'backend/src/auth/events/authorization-request-approved.event.ts'
+      - 'backend/src/auth/events/authorization-request-created.event.ts'
+      - 'backend/src/auth/events/authorization-request-denied.event.ts'
+      - 'backend/src/auth/events/authorization-request-logged.event.ts'
+      - 'backend/src/auth/events/password-recovery-requested.event.ts'
+      - 'backend/src/auth/events/user-registered.event.ts'
+      # `@typescript-eslint/no-extraneous-class` flags LoggingModule's empty class body, but an
+      # empty class is how a decorated NestJS `@Module` is declared. See issue #225.
+      - 'backend/src/core/logging.module.ts'
+  eslint-9:
+    exclude_paths:
+      # Codacy's base `no-unused-vars` misreads TypeScript constructor parameter properties
+      # (`constructor(readonly userId: number) {}`) as unused parameters — the parameter
+      # property *is* the declaration. The repo's own ESLint (backend/eslint.config.mjs) turns
+      # the base rule off for TS and uses `@typescript-eslint/no-unused-vars`, which reports
+      # nothing here. Listed file by file (no glob) so the sibling
+      # password-recovery-requested.listener.ts stays analysed. See issue #225.
+      - 'backend/src/auth/events/authorization-request-approved.event.ts'
+      - 'backend/src/auth/events/authorization-request-created.event.ts'
+      - 'backend/src/auth/events/authorization-request-denied.event.ts'
+      - 'backend/src/auth/events/authorization-request-logged.event.ts'
+      - 'backend/src/auth/events/password-recovery-requested.event.ts'
+      - 'backend/src/auth/events/user-registered.event.ts'
+      # `@typescript-eslint/no-extraneous-class` flags LoggingModule's empty class body, but an
+      # empty class is how a decorated NestJS `@Module` is declared. See issue #225.
+      - 'backend/src/core/logging.module.ts'
+  lizard:
+    exclude_paths:
+      # Yarn lockfiles are generated, not hand-maintained, so Lizard's file-size check
+      # (`Lizard_file-nloc-medium`) on them is noise. Excluded for Lizard only — never via the
+      # top-level `exclude_paths` — so Trivy keeps scanning them for vulnerable dependencies.
+      # A glob is safe here (unlike the file-by-file ESLint exclusions) because every
+      # `yarn.lock` is generated. See issue #226.
+      - '**/yarn.lock'
+  markdownlint:
+    exclude_paths:
+      # The commit message templates are arcanum-managed (installed by `init-claude`, consumed
+      # by the arcanum commit scripts). Their `<type>`, `<scope>`, `<agent>`... placeholders
+      # are template syntax, not inline HTML, so MD033 is a false positive. Escaping them would
+      # drift from the upstream copies — arcanum's own `.markdownlintignore` excludes the same
+      # two files. Excluded for markdownlint only, file by file. See issue #239.
+      - '.github/commit_message_template.md'
+      - '.github/commit_message_template-2.0.md'
