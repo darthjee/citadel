@@ -145,7 +145,7 @@ With the gate, these take effect on the **next request** of every affected sessi
 | Password reset | Every session of the user gets `401` |
 | Replay detection | Every session of the user gets `401` |
 | Admin deny ([api/admin.md](api/admin.md)) | Every session of the user gets `401` |
-| Admin demotion (`edit.json` with `isAdmin: false`) | `@AdminOnly()` routes answer `403` |
+| Admin demotion (`is_admin` set to false — a DB change today, since no endpoint edits `isAdmin`) | `@AdminOnly()` routes answer `403` |
 
 ## Reference
 
