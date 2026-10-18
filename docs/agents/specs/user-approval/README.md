@@ -2,8 +2,8 @@
 
 Feature specs for epic [#1](https://github.com/darthjee/citadel/issues/1): optional admin
 approval of self-registered accounts, plus the session-lookup gate it depends on. This folder is
-the **source of truth** for sub-issues #3–#6 and is folded into the permanent docs and deleted by
-#7 (see the [specs hub](../../specs.md)).
+the **source of truth** for sub-issues #3–#6 and is folded into the permanent docs and deleted
+by #7 (see the [specs hub](../../specs.md)).
 
 The feature is a port of Kerghan's flow
 ([darthjee/kerghan#389](https://github.com/darthjee/kerghan/issues/389)), adapted to Citadel

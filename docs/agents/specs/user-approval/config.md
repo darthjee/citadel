@@ -62,7 +62,7 @@ status: this.userApprovalConfig.registrationStatus(),
 
 ## Wiring
 
-#5 also:
+Issue #5 also:
 
 - adds the variable to [environment-variables.md](../../environment-variables.md) (section 1,
   **Consumed**, optional) and to `.env.dev.sample` (set to `false`);

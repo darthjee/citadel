@@ -2,8 +2,8 @@
 
 Back to the [feature README](README.md).
 
-Rules implemented across #4–#6; most land in #5 (non-disclosure, refresh / poll re-checks) and
-#6 (approve / deny races).
+Rules implemented across #4–#6; most land in #5 (non-disclosure, refresh / poll re-checks)
+and #6 (approve / deny races).
 
 ## Non-disclosure
 
