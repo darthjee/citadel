@@ -20,6 +20,11 @@ Every admin route returning a user (including the existing `edit.json`) serializ
 
 `status` is the only new field. Never the password digest, tokens, sessions or `updatedAt`.
 
+`status` is added **only** to `AdminController#serializeUser` (the admin serializer), never to
+the shared `serializeUser` in `backend/src/auth/auth-response.ts`, which builds the auth
+endpoints' `user` payload. #6 also updates the controller JSDoc return shapes of `search` and
+`edit` to match.
+
 ## `POST /admin/users/search.json`
 
 Request (both optional, combined with AND; `q` matches username / email case-insensitively, as
@@ -85,6 +90,10 @@ No body. `200 { "user": { …, "status": "denied" } }`. Checks in order:
 
 (Kerghan's `409 DEFAULT_USER_MANAGED` check is skipped: Citadel has no default user.)
 
+The caller's id for the self-deny check comes from `@CurrentUser().sub` and is passed by the
+controller to `AdminService#denyUser(userId, callerId)`; it never comes from the body or the
+route params.
+
 ```ts
 await this.userRepository.update({ id: user.id }, { status: UserStatus.DENIED });
 await this.tokenService.revokeUserTokens(user.id, RevokedReason.ADMIN_DENIED);
@@ -95,6 +104,9 @@ await this.tokenService.revokeUserTokens(user.id, RevokedReason.ADMIN_DENIED);
 - `admin_denied` is not `rotated`, so a later refresh of those tokens never triggers replay
   detection.
 - With the gate, the user is logged out everywhere on their next request.
+- The status update and the bulk revoke are two writes, not one transaction. That is acceptable:
+  once the status is `denied`, the gate rejects every session even if the revoke fails, and a
+  retried deny revokes what is left ([security.md](../security.md#races)).
 - **Admins can deny admins.** Only oneself is protected. Accepted risk: through the API one admin
   can deny every other admin ([security.md](../security.md#accepted-risks-and-costs)).
 - The row is kept: username and email stay taken.
@@ -154,6 +166,8 @@ Deny:
 - Another admin → `200`.
 - Unknown id → `404`.
 - A denied user's access token gets the gate's `401` on the next request.
+- If the bulk revoke fails after the status update, the deny call errors but the user's access
+  token still gets the gate's `401`.
 
 Access:
 

@@ -12,9 +12,13 @@ Rules implemented across #4–#6; most land in #5 (non-disclosure, refresh / pol
   be probed without the password.
 - `status.json` reveals only `pending`, and only to the holder of that user's own valid session.
   A denied user's `status.json` is byte-for-byte the anonymous answer.
-- Password recovery has the same observable effects (response, timing class, side effects visible
-  to the caller) for every status: `recover.json` always answers `200 { sent: true }`, and a
-  denied user's reset token fails with the same `400` as an unknown one.
+- Password recovery gives the same response and the same caller-visible side effects for every
+  status: `recover.json` always answers `200 { sent: true }`, and a denied user's reset token
+  fails with the same `400` as an unknown one, checked before any password hashing.
+  **Response time is not equalised** for `recover.json`: the approved/pending path does a token
+  insert and fires an event that the unknown/denied path skips. That gap already exists today
+  between known and unknown emails; this feature puts denied on the unknown side and adds no new
+  one. Equalising it is out of scope.
 - On business endpoints, pending and denied users get the same `401` body as an invalid or expired
   token ([errors.md](errors.md#the-identical-401)).
 - The device-authorization poll answers a non-approved requester with the same
@@ -38,9 +42,17 @@ Rules implemented across #4–#6; most land in #5 (non-disclosure, refresh / pol
      `logged → denied` ([api/auth.md](api/auth.md#post-authauthorization-requestsuuidpolljson));
    - the gate requires `approved` regardless, so any access token from such a row gets `401`
      ([gate.md](gate.md)).
-3. **Deny on an already denied user.** Allowed (`200`); it still revokes any active token, which
-   cleans up a row left by race 2.
-4. **Approval while the user has several tabs open.** No race: the session is untouched, every
+3. **Concurrent refreshes of one token / logout with a stale token.** Rotation is a single-winner
+   conditional revoke in one transaction with the insert, and logout revokes the whole session
+   ([model.md](model.md#sessions-on-refresh-tokens)), so a session can never fork into two active
+   chains that outlive a logout or a deny.
+4. **Deny's two writes.** The status update and the bulk revoke are separate writes. If the
+   revoke fails after the status update, the gate still answers `401` (it requires `approved`),
+   and the `refresh.json` / `status.json` re-checks revoke leftovers; a retried deny revokes the
+   rest.
+5. **Deny on an already denied user.** Allowed (`200`); it still revokes any active token, which
+   cleans up a row left by races 2 or 4.
+6. **Approval while the user has several tabs open.** No race: the session is untouched, every
    tab re-checks `status.json` on window focus ([ui/user.md](ui/user.md)).
 
 ## Accepted risks and costs
@@ -74,3 +86,6 @@ Rules implemented across #4–#6; most land in #5 (non-disclosure, refresh / pol
 - A winning poll for a requester denied between approve and poll → `{ status: 'denied' }`, no
   session.
 - Deny on a denied user with a leftover active token → token revoked.
+- Concurrent refreshes of one token → one winner, one `401`, one active row in the session.
+- `reset-password.json` with a denied user's valid token never calls `bcrypt.hash` (same fast
+  path as an unknown token).

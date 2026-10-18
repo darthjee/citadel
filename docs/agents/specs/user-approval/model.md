@@ -47,8 +47,21 @@ Rules:
 - `refresh.json` **copies** `session_uuid` and `started_at` onto the replacement token, so a
   session survives rotation. `TokenService#issueTokens` therefore takes an optional existing
   session (`{ sessionUuid, startedAt }`); without one it starts a new session.
-- Since rotation revokes the presented token, at most one row per session is unrevoked at a time.
-  An **active session** is exactly one non-revoked, unexpired `auth_refresh_tokens` row.
+- **Rotation is atomic and single-winner.** `refresh.json` runs, in **one transaction**: insert
+  the replacement row (same `session_uuid` / `started_at`), then revoke the presented row with a
+  **conditional** update (`UPDATE … SET revoked_at = now, revoked_reason = 'rotated' WHERE id = ?
+  AND revoked_at IS NULL`). If `affected !== 1` (a concurrent refresh with the same token won),
+  roll back and answer `401 Invalid or expired refresh token`. **Why:** today `AuthService#refresh`
+  revokes with an unconditional update, so two concurrent refreshes of one token both succeed and
+  fork the session into two active rows; and committing the revoke before the insert would leave
+  a moment with no active row, where an in-flight request gets a false gate `401` whose
+  refresh-and-retry then replays the `rotated` token and logs the user out everywhere.
+- With atomic rotation, at most one row per session is unrevoked at a time. An **active
+  session** is exactly one non-revoked, unexpired `auth_refresh_tokens` row.
+- **Logout ends the whole session**: `DELETE /auth/logoff.json` resolves the presented token's
+  `session_uuid` (whatever the token's own state) and revokes **every** active row of that
+  session with `logout`, not only the row matching the presented hash. A stale (already rotated)
+  token therefore still logs its session out.
 - No behaviour change for clients: request and response bodies are unchanged.
 
 ## Revoked reasons
@@ -72,7 +85,7 @@ These are the revocation sites Citadel has today, plus deny:
 | Reason | Written by |
 |---|---|
 | `rotated` | `AuthService#refresh` (`refresh.json`), on the presented token |
-| `logout` | `AuthService#logout` (`DELETE /auth/logoff.json`) |
+| `logout` | `AuthService#logout` (`DELETE /auth/logoff.json`), on every active token of the presented token's session |
 | `password_reset` | `AuthService#resetPassword` (`reset-password.json`), on every active token of the user |
 | `replay_detected` | Replay detection in `refresh.json`, on every active token of the user |
 | `admin_denied` | `deny.json`, and the `refresh.json` / `status.json` re-checks of a denied user ([api/auth.md](api/auth.md), [api/admin.md](api/admin.md)) |
@@ -177,6 +190,11 @@ Sessions (#3):
 - Login, register and a winning device poll each create a **new** `session_uuid`; two logins of
   the same user get two different sessions.
 - `refresh.json` copies `session_uuid` and `started_at` to the replacement token.
+- Two concurrent `refresh.json` calls with the same token: exactly one succeeds, the other gets
+  `401`, and the session has exactly one active row afterwards.
+- A failed insert during rotation leaves the presented token active (transaction rolled back).
+- Logout with a stale (already rotated) token of a session revokes that session's active row
+  with `logout`; other sessions of the user stay active.
 - Each revocation site writes its reason (`rotated`, `logout`, `password_reset`,
   `replay_detected`).
 - Replaying a `rotated` token revokes the user's active tokens with `replay_detected`; replaying a

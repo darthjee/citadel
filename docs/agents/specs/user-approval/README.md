@@ -19,16 +19,30 @@ one, or ban an approved one. With the flag off (the default), registration behav
 
 ## Product decision
 
-_Kept here until #7 moves it to [product.md](../../product.md)._
+_Kept here until #7 moves it to [product.md](../../product.md): the rules below become a bullet
+under "What's already decided (template-level)", next to "Accounts and login"; the flag joins
+the "Env vars for the framework" bullet (and
+[environment-variables.md](../../environment-variables.md)); the deferred items below go to
+"Deferred (future, not current scope)"._
 
-- Citadel Placeholder accounts carry a **status**: `pending`, `approved` or `denied`.
-- New-account approval is **optional**, controlled by one boot-time env flag
-  ([config.md](config.md)). It only decides the status of a new self-registration.
+Decided (rules):
+
+- Citadel Placeholder accounts carry a **status**: `pending`, `approved` or `denied`. **Only
+  `approved` accounts are authenticated.**
+- New-account approval is **optional**, controlled by one boot-time env flag,
+  `CITADEL_PLACEHOLDER_USER_APPROVAL_REQUIRED` ([config.md](config.md)). It only decides the
+  status of a new self-registration.
 - Admins review accounts from the existing admin users page: filter by status, approve pending
-  accounts, deny any account other than their own.
-- `denied` is final: there is no un-deny through the application.
-- No notifications: approve/deny send no email, and admins are not alerted of new pending
+  accounts, deny any account other than their own. **Admins may deny other admins; only
+  self-deny is refused.**
+- `denied` is final: un-deny is **rejected** as a feature, not postponed. Only a manual DB change
+  leaves `denied`.
+
+Deferred (future work, not rejected):
+
+- Notifications: approve/deny send no email today, and admins are not alerted of new pending
   registrations.
+- Pagination of the admin user listing.
 
 ## Status model
 
@@ -131,11 +145,11 @@ In scope: everything listed under [What Citadel adds](#what-citadel-adds).
 Out of scope:
 
 - The default user (Citadel Placeholder has none) and every Kerghan rule tied to it
-  (`409 DEFAULT_USER_MANAGED`, boot sync, `status.json` automatic login).
-- Notifications on approve/deny or on new pending registrations.
-- Pagination of the admin user listing.
-- Un-deny.
-- Moving the refresh token into a cookie.
+  (`409 DEFAULT_USER_MANAGED`, boot sync, `status.json` automatic login). Not applicable.
+- Notifications on approve/deny or on new pending registrations. Deferred.
+- Pagination of the admin user listing. Deferred.
+- Un-deny. Rejected (`denied` is final).
+- Moving the refresh token into a cookie. Not part of this feature.
 
 ## Index
 

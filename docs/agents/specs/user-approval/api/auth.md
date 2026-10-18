@@ -145,8 +145,12 @@ revoke can insert a new active row after it; this check stops that session from 
 
 | Route | Behavior |
 |---|---|
-| `recover.json` `{ "email": "…" }` | Always `200 { "sent": true }`. `approved` / `pending`: unchanged (token + email). `denied`: treated like an unknown email — no token, no event, no email. Same log lines as an unknown email. |
+| `recover.json` `{ "email": "…" }` | Always `200 { "sent": true }`. `approved` / `pending`: unchanged (token + email). `denied`: treated like an unknown email — no token, no event, no email. Same log lines as an unknown email. Response time is not equalised (see [security.md](../security.md#non-disclosure)). |
 | `reset-password.json` `{ "token": "…", "password": "…" }` | Token errors first, unchanged. Valid token of a `denied` user → the same generic `400 Invalid or expired token` as an unknown token; password unchanged, token **not** consumed. Valid token of a `pending` user → reset works and revokes the user's tokens as today (`password_reset`); the user **stays `pending`**. |
+
+In `PasswordResetService#resetPassword`, the denied check runs **right after the token lookup
+and before `bcrypt.hash`**, so a denied user's token takes the same fast path as an unknown one
+and response time does not reveal a denied account.
 
 The admin recovery tools (`recovery-link.json`, `send-recovery-email.json`) are unchanged: an
 admin can still mint a link for any user, but redeeming it for a denied user fails as above.
@@ -174,6 +178,11 @@ if (user.status !== UserStatus.APPROVED) {
 Response: `200 { "status": "denied" }` — the same answer as a request the approver denied — with
 no `user`, no session and no cookie. The request moves `logged → denied` with a conditional
 `UPDATE … WHERE status = 'logged'`.
+
+`POST /auth/authorization-requests.json` (`create`, `@Public()`) stays **identical for every
+status**: it still saves the request and emits `authorization-request.created` for a pending or
+denied username, so the response and side effects do not reveal the status. The status only
+matters at the winning poll.
 
 `authorize.json` needs no check of its own: it is authenticated, so a non-approved approver gets
 the gate's `401` first ([gate.md](../gate.md)).
@@ -231,9 +240,14 @@ Recovery:
 
 - `recover.json` for a denied email: `200 { sent: true }`, no token row, no event emitted.
 - `reset-password.json` with a valid token of a denied user: `400 Invalid or expired token`,
-  password unchanged, token still unused.
+  password unchanged, token still unused, and `bcrypt.hash` never called.
 - `reset-password.json` with a valid token of a pending user: password changed, user still
   `pending`.
+
+Payload:
+
+- The `user` payload of `login.json`, `register.json`, `refresh.json` and the winning poll has no
+  `status` key, for every status.
 
 Device poll:
 
@@ -241,3 +255,5 @@ Device poll:
   cookie; the request row is `denied`.
 - Winning poll for an approved requester → unchanged.
 - A pending approver calling `authorize.json` → the gate's `401`.
+- `create` for a pending, denied and approved username → identical response, a saved request
+  and the `authorization-request.created` event in all three cases.

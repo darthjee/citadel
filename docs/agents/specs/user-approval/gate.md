@@ -141,7 +141,7 @@ With the gate, these take effect on the **next request** of every affected sessi
 
 | Event | Effect |
 |---|---|
-| Logout (`DELETE /auth/logoff.json`) | That session's access tokens get `401` |
+| Logout (`DELETE /auth/logoff.json`) | That session's access tokens get `401` (logout revokes every active row of the session, [model.md](model.md#sessions-on-refresh-tokens)) |
 | Password reset | Every session of the user gets `401` |
 | Replay detection | Every session of the user gets `401` |
 | Admin deny ([api/admin.md](api/admin.md)) | Every session of the user gets `401` |
@@ -176,7 +176,11 @@ and
   an integer; lookup returns `null`; lookup returns a user whose `id !== sub`; bad signature;
   expired token.
 - A lookup that throws propagates as `500`.
-- `@Public()` routes never call the lookup.
+- `@Public()` routes never call the lookup; a missing cookie answers `401 Missing access token`
+  without calling it.
+- A token signed with a previous secret key still goes through the session lookup (and fails it
+  when the session is revoked).
+- A `sid` belonging to another user's active session (`user.id !== sub`) → the identical `401`.
 
 `SessionService#findActiveSessionUser`:
 
@@ -186,6 +190,7 @@ and
 Session-gate e2e:
 
 - After logout, the same access token gets `401` on a protected route.
+- Two sessions of the same user: logging one out leaves the other's access token working.
 - After a password reset, every other session's access token gets `401`.
 - A demoted admin's next `@AdminOnly()` call answers `403`.
 - `refresh.json` mints an access token whose `sid` equals the session's `session_uuid`.
