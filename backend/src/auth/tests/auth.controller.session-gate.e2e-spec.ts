@@ -2,10 +2,10 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
 import { loginAs, useTestApp } from './auth.controller.e2e-test-support.js';
+import { createAuthorizationRequest } from './authorization-request.controller.e2e-test-support.js';
 import { expectErrorBody } from './support/error-body.js';
 import { ErrorCodes } from '../../core/error-codes.js';
 import { hashToken } from '../../core/token-hash.js';
-import { createAuthorizationRequest } from './authorization-request.controller.e2e-test-support.js';
 import { RefreshToken } from '../entities/refresh-token.entity.js';
 import { User, UserStatus } from '../entities/user.entity.js';
 

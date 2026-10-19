@@ -18,6 +18,7 @@ import { RefreshToken } from './entities/refresh-token.entity.js';
 import { User } from './entities/user.entity.js';
 import { PasswordRecoveryRequestedListener } from './events/password-recovery-requested.listener.js';
 import { PasswordResetService } from './password-reset.service.js';
+import { SessionStatusService } from './session-status.service.js';
 import { SessionService } from './session.service.js';
 import { TokenService } from './token.service.js';
 import { UserApprovalConfig } from './user-approval.config.js';
@@ -58,6 +59,7 @@ import { SESSION_LOOKUP } from '../core/session-lookup.js';
     AuthorizationRequestAbuseGuardService,
     PasswordRecoveryRequestedListener,
     SessionService,
+    SessionStatusService,
     { provide: SESSION_LOOKUP, useExisting: SessionService },
     {
       provide: UserApprovalConfig,

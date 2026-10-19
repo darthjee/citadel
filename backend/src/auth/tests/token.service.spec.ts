@@ -242,6 +242,18 @@ describe('TokenService', () => {
     });
   });
 
+  describe('revokeToken', () => {
+    it('revokes only that row, only while still unrevoked, with the given reason', async () => {
+      await service.revokeToken(42, RevokedReason.ADMIN_DENIED);
+
+      expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { id: 42, revokedAt: IsNull() },
+        { revokedAt: expect.any(Date), revokedReason: RevokedReason.ADMIN_DENIED },
+      );
+    });
+  });
+
   describe('hashToken', () => {
     it('returns the SHA-256 hex digest of the value', () => {
       expect(service.hashToken('abc')).toBe(

@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import { AccountService } from './account.service.js';
 import { respondWithSession } from './auth-response.js';
 import { AuthService } from './auth.service.js';
+import { SessionStatusService } from './session-status.service.js';
 import type { AccessTokenPayload } from '../core/access-token-payload.js';
 import { CacheClass } from '../core/cache-class.js';
 import { CachePolicy } from '../core/cache-policy.decorator.js';
@@ -20,7 +21,7 @@ const ACCESS_TOKEN_COOKIE = 'access_token';
 
 /**
  * Auth module routes — thin, delegating all business logic to
- * `AuthService`. `login`/`register`/`refresh`/`logout`/`status` are all
+ * `AuthService` (and `status` to `SessionStatusService`). `login`/`register`/`refresh`/`logout`/`status` are all
  * `@Public()`: the first four exist precisely to establish or renew
  * credentials, and `status` exists to let an already-logged-out client
  * check its session without one — so all of them must stay reachable
@@ -36,17 +37,25 @@ export class AuthController {
   private readonly authService: AuthService;
   private readonly configService: ConfigService;
   private readonly accountService: AccountService;
+  private readonly sessionStatusService: SessionStatusService;
 
   /**
    * @param {AuthService} authService - The Auth module's business logic.
    * @param {ConfigService} configService - Supplies the access-token TTL used
    *   for the cookie's `maxAge`.
    * @param {AccountService} accountService - The self-service "My Account" update flow's business logic.
+   * @param {SessionStatusService} sessionStatusService - Answers `status.json`.
    */
-  constructor(authService: AuthService, configService: ConfigService, accountService: AccountService) {
+  constructor(
+    authService: AuthService,
+    configService: ConfigService,
+    accountService: AccountService,
+    sessionStatusService: SessionStatusService,
+  ) {
     this.authService = authService;
     this.configService = configService;
     this.accountService = accountService;
+    this.sessionStatusService = sessionStatusService;
   }
 
   /**
@@ -159,13 +168,15 @@ export class AuthController {
    * identifies an active session, without setting/clearing the
    * access-token cookie or mutating anything server-side — used for
    * mount-time login-state confirmation (e.g. the frontend header), not for
-   * establishing or renewing credentials.
+   * establishing or renewing credentials. The only server-side write is
+   * revoking a denied user's token (see `SessionStatusService#status`).
    * @param {RefreshTokenDto} dto - Carries the refresh token to check.
-   * @returns {Promise<object>} `{ loggedIn: boolean, isAdmin: boolean }`, always `200`.
+   * @returns {Promise<object>} `{ loggedIn, isAdmin }`, plus `status: 'pending'`
+   *   for a pending user only; always `200`.
    */
   @Public()
   @Post('status.json')
   async status(@Body() dto: RefreshTokenDto): Promise<object> {
-    return this.authService.status(dto.refreshToken);
+    return this.sessionStatusService.status(dto.refreshToken);
   }
 }

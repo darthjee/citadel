@@ -3,14 +3,14 @@ import type { Response } from 'express';
 import { AccountService } from '../account.service.js';
 import { AuthController } from '../auth.controller.js';
 import { AuthService } from '../auth.service.js';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
+import { SessionStatusService } from '../session-status.service.js';
 
 type AuthServiceMock = {
   login: jest.Mock;
   register: jest.Mock;
   refresh: jest.Mock;
   logout: jest.Mock;
-  status: jest.Mock;
 };
 
 function authServiceMock(user: User): AuthServiceMock {
@@ -19,7 +19,6 @@ function authServiceMock(user: User): AuthServiceMock {
     register: jest.fn(),
     refresh: jest.fn(),
     logout: jest.fn().mockResolvedValue(undefined),
-    status: jest.fn(),
   };
 }
 
@@ -42,11 +41,13 @@ function responseMock(): jest.Mocked<Pick<Response, 'cookie' | 'set' | 'clearCoo
 describe('AuthController', () => {
   let user: User;
   let authService: AuthServiceMock;
+  let sessionStatusService: { status: jest.Mock };
   let res: jest.Mocked<Pick<Response, 'cookie' | 'set' | 'clearCookie'>>;
 
   beforeEach(() => {
     user = { id: 1, username: 'darthjee', email: 'darthjee@example.com', isAdmin: false } as User;
     authService = authServiceMock(user);
+    sessionStatusService = { status: jest.fn() };
     res = responseMock();
   });
 
@@ -60,6 +61,7 @@ describe('AuthController', () => {
       authService as unknown as AuthService,
       configService as unknown as ConfigService,
       accountService as unknown as AccountService,
+      sessionStatusService as unknown as SessionStatusService,
     );
   }
 
@@ -126,19 +128,30 @@ describe('AuthController', () => {
   describe('POST /auth/status.json', () => {
     describe('when the service reports an active session', () => {
       it('responds with { loggedIn: true, isAdmin }', async () => {
-        authService.status.mockResolvedValue({ loggedIn: true, isAdmin: false });
+        sessionStatusService.status.mockResolvedValue({ loggedIn: true, isAdmin: false });
         const controller = buildController();
 
         const result = await controller.status({ refreshToken: 'a-refresh-token' });
 
-        expect(authService.status).toHaveBeenCalledWith('a-refresh-token');
+        expect(sessionStatusService.status).toHaveBeenCalledWith('a-refresh-token');
         expect(result).toEqual({ loggedIn: true, isAdmin: false });
+      });
+    });
+
+    describe('when the service reports a pending user', () => {
+      it('responds with the pending answer as is', async () => {
+        sessionStatusService.status.mockResolvedValue({ loggedIn: false, isAdmin: false, status: UserStatus.PENDING });
+        const controller = buildController();
+
+        const result = await controller.status({ refreshToken: 'a-refresh-token' });
+
+        expect(result).toEqual({ loggedIn: false, isAdmin: false, status: 'pending' });
       });
     });
 
     describe('when the service reports no active session', () => {
       it('responds with { loggedIn: false, isAdmin: false }', async () => {
-        authService.status.mockResolvedValue({ loggedIn: false, isAdmin: false });
+        sessionStatusService.status.mockResolvedValue({ loggedIn: false, isAdmin: false });
         const controller = buildController();
 
         const result = await controller.status({ refreshToken: 'unknown-token' });

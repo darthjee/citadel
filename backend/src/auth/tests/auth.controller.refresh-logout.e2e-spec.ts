@@ -2,6 +2,7 @@ import request from 'supertest';
 import { loginAs, useTestApp } from './auth.controller.e2e-test-support.js';
 import { hashToken } from '../../core/token-hash.js';
 import { RefreshToken } from '../entities/refresh-token.entity.js';
+import { UserStatus } from '../entities/user.entity.js';
 
 describe('AuthController (e2e)', () => {
   const ctx = useTestApp();
@@ -207,6 +208,128 @@ describe('AuthController (e2e)', () => {
         .expect(201);
 
       expect(response.headers['x-skip-cache']).toBe('true');
+    });
+  });
+
+  describe('by account status', () => {
+    function setStatus(status: UserStatus): void {
+      ctx.userRepo.rows[0].status = status;
+    }
+
+    function status(refreshToken: string): request.Test {
+      return request(ctx.app.getHttpServer()).post('/auth/status.json').send({ refreshToken }).expect(201);
+    }
+
+    function refresh(refreshToken: string): request.Test {
+      return request(ctx.app.getHttpServer()).post('/auth/refresh.json').send({ refreshToken });
+    }
+
+    describe('status check', () => {
+      it('answers a pending user with the pending answer, keeping the session', async () => {
+        const login = await loginAs(ctx.app).expect(201);
+        setStatus(UserStatus.PENDING);
+
+        const response = await status(login.body.refreshToken);
+
+        expect(response.body).toEqual({ loggedIn: false, isAdmin: false, status: 'pending' });
+        expect(rowOf(login.body.refreshToken).revokedAt).toBeNull();
+      });
+
+      it('answers loggedIn: true once the pending user is approved, with the same token', async () => {
+        const login = await loginAs(ctx.app).expect(201);
+        setStatus(UserStatus.PENDING);
+        await status(login.body.refreshToken);
+        setStatus(UserStatus.APPROVED);
+
+        const response = await status(login.body.refreshToken);
+
+        expect(response.body).toEqual({ loggedIn: true, isAdmin: false });
+      });
+
+      it('answers a denied user with the anonymous answer byte-for-byte, revoking the token with admin_denied', async () => {
+        const login = await loginAs(ctx.app).expect(201);
+        const other = await loginAs(ctx.app).expect(201);
+        setStatus(UserStatus.DENIED);
+
+        const denied = await status(login.body.refreshToken);
+        const unknown = await status('not-a-real-token');
+
+        expect(denied.text).toBe(unknown.text);
+        expect(denied.body).toEqual({ loggedIn: false, isAdmin: false });
+        expect(rowOf(login.body.refreshToken).revokedReason).toBe('admin_denied');
+        expect(rowOf(other.body.refreshToken).revokedAt).toBeNull();
+      });
+
+      it('carries the status key only for a pending user', async () => {
+        const login = await loginAs(ctx.app).expect(201);
+
+        expect((await status(login.body.refreshToken)).body).not.toHaveProperty('status');
+        expect((await status('not-a-real-token')).body).not.toHaveProperty('status');
+      });
+
+      it('answers a pending user whose token expired anonymously, then pending after a new login', async () => {
+        const login = await loginAs(ctx.app).expect(201);
+        setStatus(UserStatus.PENDING);
+        rowOf(login.body.refreshToken).expiresAt = new Date(Date.now() - 1000);
+
+        expect((await status(login.body.refreshToken)).body).toEqual({ loggedIn: false, isAdmin: false });
+
+        const again = await loginAs(ctx.app).expect(201);
+
+        expect((await status(again.body.refreshToken)).body).toEqual({
+          loggedIn: false,
+          isAdmin: false,
+          status: 'pending',
+        });
+      });
+    });
+
+    describe('refresh', () => {
+      it('rotates a pending user token, copying the session', async () => {
+        const login = await loginAs(ctx.app).expect(201);
+        setStatus(UserStatus.PENDING);
+
+        const refreshed = await refresh(login.body.refreshToken).expect(201);
+
+        expect(rowOf(login.body.refreshToken).revokedReason).toBe('rotated');
+        expect(rowOf(refreshed.body.refreshToken).sessionUuid).toBe(rowOf(login.body.refreshToken).sessionUuid);
+      });
+
+      it('answers a denied user active token with 401, revoking only it with admin_denied', async () => {
+        const login = await loginAs(ctx.app).expect(201);
+        const other = await loginAs(ctx.app).expect(201);
+        setStatus(UserStatus.DENIED);
+
+        const response = await refresh(login.body.refreshToken);
+
+        expect(response.status).toBe(401);
+        expect(response.body.error).toEqual({ code: 'UNAUTHORIZED', message: 'Invalid or expired refresh token' });
+        expect(rowOf(login.body.refreshToken).revokedReason).toBe('admin_denied');
+        expect(rowOf(other.body.refreshToken).revokedAt).toBeNull();
+      });
+
+      it('answers an admin_denied token presented again with 401, without replay detection', async () => {
+        const login = await loginAs(ctx.app).expect(201);
+        const other = await loginAs(ctx.app).expect(201);
+        setStatus(UserStatus.DENIED);
+        await refresh(login.body.refreshToken).expect(401);
+
+        await refresh(login.body.refreshToken).expect(401);
+
+        expect(rowOf(login.body.refreshToken).revokedReason).toBe('admin_denied');
+        expect(rowOf(other.body.refreshToken).revokedAt).toBeNull();
+      });
+
+      it('rejects a token minted right before a deny (race), and its access token fails the gate', async () => {
+        const login = await loginAs(ctx.app).expect(201);
+        const cookie = login.headers['set-cookie'][0].split(';')[0];
+        setStatus(UserStatus.DENIED);
+
+        await refresh(login.body.refreshToken).expect(401);
+
+        expect(rowOf(login.body.refreshToken).revokedReason).toBe('admin_denied');
+        await request(ctx.app.getHttpServer()).get('/protected').set('Cookie', [cookie]).expect(401);
+      });
     });
   });
 });
