@@ -1,8 +1,20 @@
 import request from 'supertest';
 import { loginAs, useTestApp } from './auth.controller.e2e-test-support.js';
+import { hashToken } from '../../core/token-hash.js';
+import { RefreshToken } from '../entities/refresh-token.entity.js';
 
 describe('AuthController (e2e)', () => {
   const ctx = useTestApp();
+
+  function rowOf(refreshToken: string): RefreshToken {
+    const row = ctx.refreshTokenRepo.rows.find((candidate) => candidate.tokenHash === hashToken(refreshToken));
+
+    if (!row) {
+      throw new Error('refresh token row not found');
+    }
+
+    return row;
+  }
 
   describe('refresh token rotation', () => {
     it('issues a new token pair and invalidates the old refresh token', async () => {
@@ -15,6 +27,16 @@ describe('AuthController (e2e)', () => {
         .expect(201);
 
       expect(refreshed.body.refreshToken).not.toBe(oldRefreshToken);
+
+      const oldRow = rowOf(oldRefreshToken);
+      const newRow = rowOf(refreshed.body.refreshToken);
+
+      expect(newRow.sessionUuid).toBe(oldRow.sessionUuid);
+      expect(newRow.startedAt).toEqual(oldRow.startedAt);
+      expect(newRow.revokedAt).toBeNull();
+      expect(oldRow.revokedAt).toEqual(expect.any(Date));
+      expect(oldRow.revokedReason).toBe('rotated');
+      expect(ctx.refreshTokenRepo.rows.filter((row) => row.sessionUuid === oldRow.sessionUuid && !row.revokedAt)).toHaveLength(1);
 
       await request(ctx.app.getHttpServer())
         .post('/auth/refresh.json')

@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
+import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { RefreshToken } from '../entities/refresh-token.entity.js';
+import { IsNull } from 'typeorm';
+import { RefreshToken, RevokedReason } from '../entities/refresh-token.entity.js';
 import { User } from '../entities/user.entity.js';
 import { TokenService } from '../token.service.js';
 import { repoMock, RepoMock } from './repo-mock.test-support.js';
@@ -132,6 +134,80 @@ describe('TokenService', () => {
 
     it('depends on no session repository', () => {
       expect(TokenService.length).toBe(2);
+    });
+  });
+
+  describe('rotateTokens', () => {
+    const user = { id: 7, username: 'darthjee', isAdmin: false } as User;
+    const presented = {
+      id: 10,
+      userId: 7,
+      sessionUuid: '11111111-2222-4333-8444-555555555555',
+      startedAt: new Date('2026-01-01T00:00:00Z'),
+      revokedAt: null,
+    } as RefreshToken;
+    let managerRepository: RepoMock<RefreshToken>;
+    let transactionOutcome: Promise<unknown> | undefined;
+
+    beforeEach(() => {
+      managerRepository = repoMock<RefreshToken>();
+      managerRepository.update.mockResolvedValue({ affected: 1 });
+      const manager = { getRepository: jest.fn().mockReturnValue(managerRepository) };
+      transactionOutcome = undefined;
+
+      Object.assign(refreshTokenRepository, {
+        manager: {
+          transaction: jest.fn((callback: (m: unknown) => Promise<unknown>) => {
+            transactionOutcome = callback(manager);
+            return transactionOutcome;
+          }),
+        },
+      });
+    });
+
+    it('inserts the replacement in the presented row session, through the transaction manager', async () => {
+      const result = await service.rotateTokens(user, presented);
+
+      expect(result.user).toBe(user);
+      expect(managerRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 7,
+          sessionUuid: presented.sessionUuid,
+          startedAt: presented.startedAt,
+          revokedAt: null,
+          revokedReason: null,
+        }),
+      );
+      expect(refreshTokenRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('inserts first, then revokes the presented row only if still unrevoked, with rotated', async () => {
+      await service.rotateTokens(user, presented);
+
+      expect(managerRepository.update).toHaveBeenCalledWith(
+        { id: 10, revokedAt: IsNull() },
+        { revokedAt: expect.any(Date), revokedReason: RevokedReason.ROTATED },
+      );
+      expect(managerRepository.save.mock.invocationCallOrder[0]).toBeLessThan(
+        managerRepository.update.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('answers 401 and rejects the transaction callback (rolling back) when a concurrent rotation won', async () => {
+      managerRepository.update.mockResolvedValue({ affected: 0 });
+
+      await expect(service.rotateTokens(user, presented)).rejects.toThrow(
+        new UnauthorizedException('Invalid or expired refresh token'),
+      );
+      await expect(transactionOutcome).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('never revokes the presented row and propagates the error when the insert fails', async () => {
+      managerRepository.save.mockRejectedValue(new Error('insert failed'));
+
+      await expect(service.rotateTokens(user, presented)).rejects.toThrow('insert failed');
+      await expect(transactionOutcome).rejects.toThrow('insert failed');
+      expect(managerRepository.update).not.toHaveBeenCalled();
     });
   });
 

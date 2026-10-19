@@ -44,7 +44,7 @@ export function createInMemoryRepo<T extends { id?: number }>() {
   const rows: T[] = [];
   let nextId = 1;
 
-  return {
+  const repo = {
     rows,
     create: (attrs: Partial<T>): T => ({ ...attrs }) as T,
     findOne: async ({ where }: { where: Partial<T> | Partial<T>[] }): Promise<T | null> => {
@@ -100,7 +100,11 @@ export function createInMemoryRepo<T extends { id?: number }>() {
       }
       return entity;
     },
-    update: async (criteria: number | Partial<T>, partial: Partial<T>): Promise<void> => {
+    // Resolves `{ affected }` (the number of matched rows), like TypeORM's `UpdateResult`, so
+    // conditional updates (`AuthService`/`TokenService` rotation) can detect a lost race.
+    update: async (criteria: number | Partial<T>, partial: Partial<T>): Promise<{ affected: number }> => {
+      let affected = 0;
+
       rows.forEach((row) => {
         const matches =
           typeof criteria === 'object'
@@ -109,8 +113,11 @@ export function createInMemoryRepo<T extends { id?: number }>() {
 
         if (matches) {
           Object.assign(row, partial);
+          affected++;
         }
       });
+
+      return { affected };
     },
     createQueryBuilder: () => {
       let setPayload: Record<string, unknown> = {};
@@ -143,6 +150,38 @@ export function createInMemoryRepo<T extends { id?: number }>() {
       };
 
       return builder;
+    },
+  };
+
+  return { ...repo, manager: createFakeManager(repo) };
+}
+
+// A pass-through stand-in for `Repository#manager`: `transaction(cb)` runs `cb` with a fake
+// `EntityManager` whose `getRepository()` returns the same in-memory repo. It is **not** a real
+// transaction — there is no isolation and updates are never undone. The only rollback it mimics is
+// dropping the rows inserted through it when the callback throws (so a lost rotation race leaves no
+// stray replacement row). Real-engine transaction/concurrency checks are follow-up #9.
+function createFakeManager<T extends { id?: number }>(repo: { rows: T[]; save: (entity: T) => Promise<T> }) {
+  return {
+    transaction: async <R>(callback: (manager: { getRepository: () => unknown }) => Promise<R>): Promise<R> => {
+      const inserted: T[] = [];
+      const save = async (entity: T): Promise<T> => {
+        const isNew = entity.id === undefined;
+        const saved = await repo.save(entity);
+
+        if (isNew) {
+          inserted.push(saved);
+        }
+
+        return saved;
+      };
+
+      try {
+        return await callback({ getRepository: () => ({ ...repo, save }) });
+      } catch (error) {
+        inserted.forEach((row) => repo.rows.splice(repo.rows.indexOf(row), 1));
+        throw error;
+      }
     },
   };
 }

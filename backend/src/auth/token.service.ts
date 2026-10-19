@@ -1,10 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import { hashToken } from '../core/token-hash.js';
-import { RefreshToken } from './entities/refresh-token.entity.js';
+import { RefreshToken, RevokedReason } from './entities/refresh-token.entity.js';
 import { User } from './entities/user.entity.js';
 
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -90,6 +90,40 @@ export class TokenService {
     );
 
     return { user, accessToken, refreshToken };
+  }
+
+  /**
+   * Rotates the presented refresh token atomically and single-winner, in one
+   * transaction: inserts the replacement **first** (same `sessionUuid` /
+   * `startedAt`), then revokes the presented row with `rotated` through a
+   * conditional update (`WHERE id = ? AND revoked_at IS NULL`). If it affects
+   * no row, a concurrent refresh with the same token already won: the throw
+   * rolls the transaction back (dropping the replacement), so a session never
+   * forks into two active rows. **Why insert first:** committing the revoke
+   * before the insert would leave a moment with no active row, where an
+   * in-flight request could get a false `401` whose refresh-and-retry then
+   * replays the `rotated` token and logs the user out everywhere.
+   * @param {User} user - The owner of the presented token.
+   * @param {RefreshToken} presented - The presented (active) refresh-token row.
+   * @returns {Promise<AuthResult>} The user plus the newly issued token pair.
+   * @throws {UnauthorizedException} When a concurrent rotation already revoked the presented row.
+   */
+  async rotateTokens(user: User, presented: RefreshToken): Promise<AuthResult> {
+    const session = { sessionUuid: presented.sessionUuid, startedAt: presented.startedAt };
+
+    return this.refreshTokenRepository.manager.transaction(async (manager) => {
+      const result = await this.issueTokens(user, session, manager);
+      const { affected } = await manager.getRepository(RefreshToken).update(
+        { id: presented.id, revokedAt: IsNull() },
+        { revokedAt: new Date(), revokedReason: RevokedReason.ROTATED },
+      );
+
+      if (affected !== 1) {
+        throw new UnauthorizedException('Invalid or expired refresh token');
+      }
+
+      return result;
+    });
   }
 
   /**
