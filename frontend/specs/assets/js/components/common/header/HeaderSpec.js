@@ -4,6 +4,7 @@ import Header from '../../../../../../assets/js/components/common/header/Header.
 import HeaderHelper from '../../../../../../assets/js/components/common/header/helpers/HeaderHelper.jsx';
 import HeaderController from '../../../../../../assets/js/components/common/header/controllers/HeaderController.js';
 import AuthSession from '../../../../../../assets/js/client/AuthSession.js';
+import AwaitingApprovalGate from '../../../../../../assets/js/components/common/awaitingApproval/AwaitingApprovalGate.jsx';
 
 describe('Header', () => {
   afterEach(() => {
@@ -24,12 +25,22 @@ describe('Header', () => {
     expect(markup).toContain('page content');
   });
 
+  it('renders its children rather than the awaiting-approval view by default', () => {
+    AuthSession.set('token');
+    const markup = renderToStaticMarkup(
+      React.createElement(Header, null, React.createElement('p', null, 'page content')),
+    );
+
+    expect(markup).toContain('page content');
+    expect(markup).not.toContain('Awaiting approval');
+  });
+
   it('passes the logged-out state to HeaderHelper by default', () => {
     spyOn(HeaderHelper, 'render').and.callThrough();
 
     renderToStaticMarkup(React.createElement(Header, null));
 
-    expect(HeaderHelper.render).toHaveBeenCalledWith(false, false, jasmine.any(Function), jasmine.any(Function));
+    expect(HeaderHelper.render).toHaveBeenCalledWith(false, false, jasmine.any(Function), jasmine.any(Function), false);
   });
 
   it('passes the logged-in state to HeaderHelper when a refresh token is stored', () => {
@@ -38,7 +49,7 @@ describe('Header', () => {
 
     renderToStaticMarkup(React.createElement(Header, null));
 
-    expect(HeaderHelper.render).toHaveBeenCalledWith(true, false, jasmine.any(Function), jasmine.any(Function));
+    expect(HeaderHelper.render).toHaveBeenCalledWith(true, false, jasmine.any(Function), jasmine.any(Function), false);
   });
 
   it('logs out and prevents the default navigation when the logout handler fires', async () => {
@@ -70,5 +81,23 @@ describe('Header', () => {
     capturedHandler('register');
 
     expect(HeaderController.prototype.openLoginModal).toHaveBeenCalledWith('register');
+  });
+
+  describe('pending state', () => {
+    it('hides the auth links and shows the awaiting-approval view', () => {
+      const onLogout = jasmine.createSpy('onLogout');
+      const markup = renderToStaticMarkup(React.createElement(
+        React.Fragment,
+        null,
+        HeaderHelper.render(false, false, onLogout, jasmine.createSpy('onOpenLogin'), true),
+        React.createElement(AwaitingApprovalGate, { pending: true, onLogout }, 'page content'),
+      ));
+
+      expect(markup).toContain('Citadel Placeholder');
+      expect(markup).not.toContain('>Login<');
+      expect(markup).not.toContain('>Logout<');
+      expect(markup).toContain('Awaiting approval');
+      expect(markup).not.toContain('page content');
+    });
   });
 });

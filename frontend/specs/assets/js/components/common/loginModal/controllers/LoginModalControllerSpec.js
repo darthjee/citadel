@@ -1,5 +1,5 @@
 import LoginModalController from '../../../../../../../assets/js/components/common/loginModal/controllers/LoginModalController.js';
-import AuthEvents from '../../../../../../../assets/js/client/AuthEvents.js';
+import AuthStatus from '../../../../../../../assets/js/client/AuthStatus.js';
 import LoginModalEvents from '../../../../../../../assets/js/client/LoginModalEvents.js';
 import AuthorizationRequestPoller from '../../../../../../../assets/js/utils/polling/AuthorizationRequestPoller.js';
 import { installFakeWindow, uninstallFakeWindow } from '../../../../../../support/fakeWindow.js';
@@ -37,7 +37,7 @@ describe('LoginModalController', () => {
       'login', 'register', 'recover', 'resetPassword',
       'createAuthorizationRequest', 'pollAuthorizationRequest',
     ]);
-    spyOn(AuthEvents, 'emit');
+    spyOn(AuthStatus, 'refresh').and.resolveTo();
     spyOn(LoginModalEvents, 'close');
     installFakeWindow({ location: { hash: '' } });
   });
@@ -100,7 +100,7 @@ describe('LoginModalController', () => {
 
       expect(setSubmitError).toHaveBeenCalledWith(null);
       expect(client.login).toHaveBeenCalledWith(passwordFields);
-      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, true);
+      expect(AuthStatus.refresh).toHaveBeenCalledOnceWith(client);
       expect(LoginModalEvents.close).toHaveBeenCalledTimes(1);
       expect(globalThis.window.location.hash).toBe('/');
     });
@@ -111,7 +111,7 @@ describe('LoginModalController', () => {
       await build().handleSubmit('password', passwordFields);
 
       expect(setSubmitError).toHaveBeenCalledWith('invalid credentials');
-      expect(AuthEvents.emit).not.toHaveBeenCalled();
+      expect(AuthStatus.refresh).not.toHaveBeenCalled();
       expect(LoginModalEvents.close).not.toHaveBeenCalled();
     });
 
@@ -120,7 +120,7 @@ describe('LoginModalController', () => {
       await build().handleSubmit('bogus', passwordFields);
 
       expect(client.login).toHaveBeenCalledWith(passwordFields);
-      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, false);
+      expect(AuthStatus.refresh).toHaveBeenCalledOnceWith(client);
       expect(LoginModalEvents.close).toHaveBeenCalledTimes(1);
     });
   });
@@ -140,7 +140,7 @@ describe('LoginModalController', () => {
 
       expect(setFieldErrors).toHaveBeenCalledWith({});
       expect(client.register).toHaveBeenCalledWith(registerFields);
-      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, false);
+      expect(AuthStatus.refresh).toHaveBeenCalledOnceWith(client);
       expect(LoginModalEvents.close).toHaveBeenCalledTimes(1);
       expect(globalThis.window.location.hash).toBe('/');
     });
@@ -151,7 +151,7 @@ describe('LoginModalController', () => {
       await build().handleSubmit('register', registerFields);
 
       expect(setSubmitError).toHaveBeenCalledWith('username is not available');
-      expect(AuthEvents.emit).not.toHaveBeenCalled();
+      expect(AuthStatus.refresh).not.toHaveBeenCalled();
     });
   });
 
@@ -164,7 +164,7 @@ describe('LoginModalController', () => {
       expect(setSubmitError).toHaveBeenCalledWith(null);
       expect(client.recover).toHaveBeenCalledWith('foo@example.com');
       expect(setResultPanel).toHaveBeenCalledWith('recover');
-      expect(AuthEvents.emit).not.toHaveBeenCalled();
+      expect(AuthStatus.refresh).not.toHaveBeenCalled();
       expect(LoginModalEvents.close).not.toHaveBeenCalled();
     });
 
@@ -192,7 +192,7 @@ describe('LoginModalController', () => {
 
       expect(client.resetPassword).toHaveBeenCalledWith({ token: resetToken, ...resetFields });
       expect(setResultPanel).toHaveBeenCalledWith('resetPassword');
-      expect(AuthEvents.emit).not.toHaveBeenCalled();
+      expect(AuthStatus.refresh).not.toHaveBeenCalled();
       expect(LoginModalEvents.close).not.toHaveBeenCalled();
       expect(globalThis.window.location.hash).toBe('');
     });
@@ -262,7 +262,7 @@ describe('LoginModalController', () => {
       jasmine.clock().tick(5000);
       await flush();
 
-      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, true);
+      expect(AuthStatus.refresh).toHaveBeenCalledOnceWith(client);
       expect(LoginModalEvents.close).toHaveBeenCalledTimes(1);
       expect(globalThis.window.location.hash).toBe('/');
     });

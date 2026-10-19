@@ -1,5 +1,6 @@
 import RegisterController from '../../../../../../../../assets/js/components/resources/accounts/pages/controllers/RegisterController.js';
 import AuthEvents from '../../../../../../../../assets/js/client/AuthEvents.js';
+import AuthSession from '../../../../../../../../assets/js/client/AuthSession.js';
 import { installFakeWindow, uninstallFakeWindow } from '../../../../../../../support/fakeWindow.js';
 
 describe('RegisterController', () => {
@@ -30,13 +31,12 @@ describe('RegisterController', () => {
 
   const buildController = () => new RegisterController(setFieldErrors, setSubmitError, client);
 
-  const submitSuccessfully = async ({ isAdmin }) => {
-    client.register.and.resolveTo({
-      user: {
-        id: 1, username: 'foo', email: 'foo@example.com', isAdmin,
-      },
-      refreshToken: 'refresh-token',
+  const submitSuccessfully = async (statusAnswer) => {
+    client.register.and.callFake(async () => {
+      AuthSession.set('refresh-token');
+      return { user: { id: 1, username: 'foo', isAdmin: true }, refreshToken: 'refresh-token' };
     });
+    client.status.and.resolveTo(statusAnswer);
     const controller = buildController();
     const fakeWindow = installFakeWindow({ location: { hash: '' } });
 
@@ -48,12 +48,13 @@ describe('RegisterController', () => {
   beforeEach(() => {
     setFieldErrors = jasmine.createSpy('setFieldErrors');
     setSubmitError = jasmine.createSpy('setSubmitError');
-    client = jasmine.createSpyObj('client', ['register']);
+    client = jasmine.createSpyObj('client', ['register', 'status']);
     spyOn(AuthEvents, 'emit');
   });
 
   afterEach(() => {
     uninstallFakeWindow();
+    AuthSession.clear();
   });
 
   describe('#validate', () => {
@@ -83,7 +84,7 @@ describe('RegisterController', () => {
     });
 
     it('clears field errors and redirects home on success', async () => {
-      const fakeWindow = await submitSuccessfully({ isAdmin: false });
+      const fakeWindow = await submitSuccessfully({ loggedIn: true, isAdmin: false });
 
       expect(setFieldErrors).toHaveBeenCalledWith({});
       expect(client.register).toHaveBeenCalledWith(validFields);
@@ -91,10 +92,31 @@ describe('RegisterController', () => {
       expect(fakeWindow.location.hash).toBe('/');
     });
 
-    it('emits the logged-in auth state on success', async () => {
-      await submitSuccessfully({ isAdmin: true });
+    it('re-checks the status and emits the logged-in auth state from its answer', async () => {
+      await submitSuccessfully({ loggedIn: true, isAdmin: false });
 
-      expect(AuthEvents.emit).toHaveBeenCalledWith(true, true);
+      expect(client.status).toHaveBeenCalledWith('refresh-token');
+      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, false, false);
+    });
+
+    it('emits the pending state and keeps the token when the user awaits approval', async () => {
+      const fakeWindow = await submitSuccessfully({ loggedIn: false, isAdmin: false, status: 'pending' });
+
+      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(false, false, true);
+      expect(AuthSession.get()).toBe('refresh-token');
+      expect(fakeWindow.location.hash).toBe('/');
+    });
+
+    it('sets a submit error and does not redirect when the status re-check fails', async () => {
+      client.register.and.resolveTo({ user: { isAdmin: false }, refreshToken: 'refresh-token' });
+      AuthSession.set('refresh-token');
+      client.status.and.rejectWith(new Error('network down'));
+      const fakeWindow = installFakeWindow({ location: { hash: '' } });
+
+      await buildController().handleSubmit(validFields);
+
+      expect(setSubmitError).toHaveBeenCalledWith('network down');
+      expect(fakeWindow.location.hash).toBe('');
     });
 
     it('sets a submit error when the request fails', async () => {
