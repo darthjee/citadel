@@ -1,5 +1,5 @@
 import { RefreshToken } from '../entities/refresh-token.entity.js';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 import { SessionService } from '../session.service.js';
 
 const SID = '3f2b8c1e-9d4a-4e6b-8a1f-2c5d7e9f0a1b';
@@ -86,6 +86,13 @@ describe('SessionService', () => {
         expect(call[1].now.getTime()).toBeLessThanOrEqual(after);
       });
 
+      it('requires the user to be approved', async () => {
+        await service.findActiveSessionUser(SID);
+
+        expect(builder.andWhere).toHaveBeenCalledWith('user.status = :status', { status: UserStatus.APPROVED });
+        expect(UserStatus.APPROVED).toBe('approved');
+      });
+
       it('runs a single query', async () => {
         await service.findActiveSessionUser(SID);
 
@@ -93,7 +100,7 @@ describe('SessionService', () => {
       });
     });
 
-    describe('when no active session matches', () => {
+    describe('when no active session of an approved user matches (e.g. pending or denied)', () => {
       beforeEach(() => build(Promise.resolve(null)));
 
       it('returns null', async () => {
