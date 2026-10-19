@@ -108,6 +108,13 @@ describe('AuthorizationRequestService', () => {
           expect(ctx.tokenService.issueTokens).toHaveBeenCalledWith(user);
         });
 
+        it('claims approved -> logged, stamping loggedAt with the database clock', async () => {
+          await ctx.service.poll('uuid-1', 'poll-token');
+
+          expect(builder.set).toHaveBeenCalledWith({ status: 'logged', loggedAt: expect.any(Function) });
+          expect(builder.set.mock.calls[0][0].loggedAt()).toBe('CURRENT_TIMESTAMP');
+        });
+
         it('never writes resolvedAt as part of the claim UPDATE', async () => {
           await ctx.service.poll('uuid-1', 'poll-token');
 
