@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { SESSION_LOOKUP } from '../core/session-lookup.js';
 import { AccountEditAbuseGuardService } from './account-edit-abuse-guard.service.js';
 import { AccountService } from './account.service.js';
 import { AdminController } from './admin.controller.js';
@@ -21,6 +20,7 @@ import { PasswordResetService } from './password-reset.service.js';
 import { SessionService } from './session.service.js';
 import { TokenService } from './token.service.js';
 import { UserUpdateService } from './user-update.service.js';
+import { SESSION_LOOKUP } from '../core/session-lookup.js';
 
 /**
  * The Auth module — always-on (imported directly into `AppModule`, not

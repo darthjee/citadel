@@ -114,7 +114,7 @@ describe('AuthController', () => {
       };
       const controller = buildController({ accountService });
       const dto = { currentPassword: 'my-password', username: 'new-username' };
-      const currentUser = { sub: 1, username: 'darthjee', isAdmin: false };
+      const currentUser = { sub: 1, sid: '3f2b8c1e-9d4a-4e6b-8a1f-2c5d7e9f0a1b', username: 'darthjee', isAdmin: false };
 
       const result = await controller.updateAccount(dto, currentUser);
 
