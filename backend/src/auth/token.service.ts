@@ -54,8 +54,9 @@ export class TokenService {
 
   /**
    * Issues an access/refresh token pair for the given user: signs the
-   * access-token JWT (`{ sub, username, isAdmin }`) and persists a new
-   * SHA-256-hashed `RefreshToken` row (7-day TTL, `revokedAt: null`,
+   * access-token JWT (`{ sub, sid, username, isAdmin }`, `sid` being the
+   * row's `sessionUuid`, checked by `JwtGuard` on every request) and
+   * persists a new SHA-256-hashed `RefreshToken` row (7-day TTL, `revokedAt: null`,
    * `revokedReason: null`). Shared by the password-login (`AuthService`) and
    * device-authorization paths so both mint sessions identically.
    * @param {User} user - The user to mint a session for.
@@ -68,14 +69,15 @@ export class TokenService {
    *   access/refresh token pair.
    */
   async issueTokens(user: User, session?: SessionIdentity, manager?: EntityManager): Promise<AuthResult> {
+    const { sessionUuid, startedAt } = session ?? { sessionUuid: randomUUID(), startedAt: new Date() };
     const accessToken = this.jwtService.sign({
       sub: user.id,
+      sid: sessionUuid,
       username: user.username,
       isAdmin: user.isAdmin,
     });
     const refreshToken = randomBytes(48).toString('hex');
     const repository = manager ? manager.getRepository(RefreshToken) : this.refreshTokenRepository;
-    const { sessionUuid, startedAt } = session ?? { sessionUuid: randomUUID(), startedAt: new Date() };
 
     await repository.save(
       repository.create({

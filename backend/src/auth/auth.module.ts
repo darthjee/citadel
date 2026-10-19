@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { SESSION_LOOKUP } from '../core/session-lookup.js';
 import { AccountEditAbuseGuardService } from './account-edit-abuse-guard.service.js';
 import { AccountService } from './account.service.js';
 import { AdminController } from './admin.controller.js';
@@ -17,6 +18,7 @@ import { RefreshToken } from './entities/refresh-token.entity.js';
 import { User } from './entities/user.entity.js';
 import { PasswordRecoveryRequestedListener } from './events/password-recovery-requested.listener.js';
 import { PasswordResetService } from './password-reset.service.js';
+import { SessionService } from './session.service.js';
 import { TokenService } from './token.service.js';
 import { UserUpdateService } from './user-update.service.js';
 
@@ -25,7 +27,10 @@ import { UserUpdateService } from './user-update.service.js';
  * lazy-loaded), per the issue's module classification. Exports `AuthService`
  * for other modules' direct-DI reads, per the hybrid inter-module
  * communication pattern (a module never writes to another module's tables;
- * reads happen only through the exported service).
+ * reads happen only through the exported service). Also provides Core's
+ * `SESSION_LOOKUP` port (implemented by `SessionService`, which itself stays
+ * unexported) so the global `JwtGuard` can check every access token's
+ * session without `core/` importing `auth/`.
  */
 @Module({
   imports: [
@@ -50,8 +55,10 @@ import { UserUpdateService } from './user-update.service.js';
     AuthorizationRequestService,
     AuthorizationRequestAbuseGuardService,
     PasswordRecoveryRequestedListener,
+    SessionService,
+    { provide: SESSION_LOOKUP, useExisting: SessionService },
   ],
-  exports: [AuthService],
+  exports: [AuthService, SESSION_LOOKUP],
 })
 // NestJS module classes are intentionally empty; all behavior lives in @Module().
 // eslint-disable-next-line @typescript-eslint/no-extraneous-class
