@@ -49,7 +49,7 @@ export class RefreshToken extends HashedTokenBase {
   @Column({ name: 'revoked_reason', type: 'varchar', length: 32, nullable: true })
     revokedReason!: RevokedReason | null;
 
-  @Index()
+  @Index('idx_auth_refresh_tokens_session_uuid')
   @Column({ name: 'session_uuid', length: 36 })
     sessionUuid!: string;
 

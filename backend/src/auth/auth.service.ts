@@ -152,7 +152,7 @@ export class AuthService {
     }
 
     await this.refreshTokenRepository.update(
-      { sessionUuid: tokenRow.sessionUuid, revokedAt: IsNull() },
+      { userId: tokenRow.userId, sessionUuid: tokenRow.sessionUuid, revokedAt: IsNull() },
       { revokedAt: new Date(), revokedReason: RevokedReason.LOGOUT },
     );
   }

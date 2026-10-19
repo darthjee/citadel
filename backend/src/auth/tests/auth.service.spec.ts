@@ -426,7 +426,7 @@ describe('AuthService', () => {
 
       expect(refreshTokenRepository.findOneBy).toHaveBeenCalledWith({ tokenHash: 'hashed:a-refresh-token' });
       expect(refreshTokenRepository.update).toHaveBeenCalledWith(
-        { sessionUuid, revokedAt: IsNull() },
+        { userId: activeToken.userId, sessionUuid, revokedAt: IsNull() },
         { revokedAt: expect.any(Date), revokedReason: RevokedReason.LOGOUT },
       );
     });
