@@ -1,6 +1,7 @@
 import AccountsClient from '../../../../client/AccountsClient.js';
 import AuthStatus from '../../../../client/AuthStatus.js';
 import LoginModalEvents from '../../../../client/LoginModalEvents.js';
+import LoginErrorMessages from './LoginErrorMessages.js';
 import AuthorizationRequestPoller from '../../../../utils/polling/AuthorizationRequestPoller.js';
 import { validateRegistration, validateResetPassword } from '../../../../utils/validation/formValidators.js';
 import { redirectHome } from '../../../../utils/routing/redirects.js';
@@ -32,8 +33,8 @@ const DEVICE_REJECTION_PANELS = new Map([
  * authenticates via {@link AccountsClient.login}; Register mode validates with
  * {@link validateRegistration}'s rules then calls {@link AccountsClient.register} — both converge
  * on the shared success handler that re-checks the account status, closes the modal and redirects
- * home. Recover mode calls
- * {@link AccountsClient.recover} and always shows the neutral "check your email" panel;
+ * home. Recover mode calls {@link AccountsClient.recover} and always shows the neutral "check your
+ * email" panel;
  * Set-new-password mode validates with {@link validateResetPassword}'s rules then calls
  * {@link AccountsClient.resetPassword} and shows a success panel — neither closes the modal,
  * emits auth state, nor redirects. Authorize-with-logged-device mode opens a request via
@@ -121,7 +122,8 @@ export default class LoginModalController {
 
   /**
    * Password-mode submit: authenticate against the backend, converging on the shared success
-   * handler, or set a submit-error message on failure — same shape as today's `LoginController`.
+   * handler, or set a submit-error message on failure — mapped through
+   * {@link LoginErrorMessages.forLogin}, so a `403 USER_DENIED` shows the denied-account message.
    *
    * @param {{username: string, password: string}} fields - Current form field values.
    * @returns {Promise<void>} Resolves once submission handling finishes.
@@ -133,7 +135,7 @@ export default class LoginModalController {
       await this.client.login(fields);
       await this.#handleSuccess();
     } catch (error) {
-      this.setSubmitError(error.message);
+      this.setSubmitError(LoginErrorMessages.forLogin(error));
     }
   }
 
