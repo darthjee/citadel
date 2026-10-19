@@ -10,7 +10,7 @@ import { RegisterDto } from './dto/register.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { compareOrDummy } from './dummy-digest.js';
 import { RefreshToken, RevokedReason } from './entities/refresh-token.entity.js';
-import { User } from './entities/user.entity.js';
+import { User, UserStatus } from './entities/user.entity.js';
 import { UserRegisteredEvent } from './events/user-registered.event.js';
 import { PasswordResetService } from './password-reset.service.js';
 import { TokenService, type AuthResult } from './token.service.js';
@@ -78,6 +78,7 @@ export class AuthService {
         email: dto.email,
         passwordDigest,
         isAdmin: false,
+        status: UserStatus.APPROVED,
       }),
     );
 

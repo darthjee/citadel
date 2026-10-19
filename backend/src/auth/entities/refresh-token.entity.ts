@@ -15,6 +15,11 @@ export const RevokedReason = {
   PASSWORD_RESET: 'password_reset',
   /** Written by replay detection in `AuthService#refresh` on every active token of the user. */
   REPLAY_DETECTED: 'replay_detected',
+  /**
+   * Written when a denied user's token is presented (`AuthService#status` /
+   * `AuthService#refresh`) and by the admin deny action. Never triggers replay detection.
+   */
+  ADMIN_DENIED: 'admin_denied',
 } as const;
 export type RevokedReason = typeof RevokedReason[keyof typeof RevokedReason];
 
