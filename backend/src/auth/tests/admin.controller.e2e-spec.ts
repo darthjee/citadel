@@ -108,6 +108,7 @@ describe('AdminController (e2e)', () => {
                 email: 'darthjee@example.com',
                 isAdmin: false,
                 createdAt: expect.any(String),
+                status: 'approved',
               }),
             ]),
           );
@@ -212,6 +213,7 @@ describe('AdminController (e2e)', () => {
               email: 'darthjee-renamed@example.com',
               isAdmin: false,
               createdAt: expect.any(String),
+              status: 'approved',
             }),
           });
         });

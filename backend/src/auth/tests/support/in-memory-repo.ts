@@ -1,6 +1,6 @@
 // Matches a single condition value against a row's field, understanding
 // the TypeORM find operators the auth specs rely on (`IsNull()`, used by
-// `AuthService#revokeTokenFamily`; `MoreThan()`; `ILike()`, used by the
+// `TokenService#revokeUserTokens`; `MoreThan()`; `ILike()`, used by the
 // admin user search; `Not()`, used by `AuthService#assertAvailableForUpdate`'s
 // self-exclusion) in addition to plain equality — real TypeORM/MySQL
 // handles them natively, this in-memory stand-in needs to special-case them.

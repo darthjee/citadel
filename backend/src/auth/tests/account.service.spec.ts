@@ -4,18 +4,20 @@ import { LockedException } from '../../core/locked.exception.js';
 import { AccountEditAbuseGuardService } from '../account-edit-abuse-guard.service.js';
 import { AccountService } from '../account.service.js';
 import { AuthService } from '../auth.service.js';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 import { UserUpdateService } from '../user-update.service.js';
 
 type RepoMock<T extends object> = {
   findOneBy: jest.Mock;
   save: jest.Mock;
+  update: jest.Mock;
 } & Partial<T>;
 
 function repoMock<T extends object>(): RepoMock<T> {
   return {
     findOneBy: jest.fn(),
     save: jest.fn(async (entity) => entity),
+    update: jest.fn(async () => ({ affected: 1 })),
   } as RepoMock<T>;
 }
 
@@ -99,7 +101,7 @@ describe('AccountService', () => {
           newPassword: 'brand-new-password',
         });
 
-        const savedUser = userRepository.save.mock.calls[0][0];
+        const [, savedUser] = userRepository.update.mock.calls[0];
 
         expect(savedUser.passwordDigest).not.toBe(originalDigest);
         await expect(bcrypt.compare('brand-new-password', savedUser.passwordDigest)).resolves.toBe(true);
@@ -126,7 +128,7 @@ describe('AccountService', () => {
 
         expect(result).toEqual({ username: 'new-username', email: 'new-email@example.com' });
 
-        const savedUser = userRepository.save.mock.calls[0][0];
+        const [, savedUser] = userRepository.update.mock.calls[0];
         await expect(bcrypt.compare('brand-new-password', savedUser.passwordDigest)).resolves.toBe(true);
       });
     });
@@ -137,7 +139,7 @@ describe('AccountService', () => {
           service.updateAccount(1, { currentPassword: 'wrong-password', username: 'new-username' }),
         ).rejects.toThrow(new BadRequestException('Invalid current password'));
 
-        expect(userRepository.save).not.toHaveBeenCalled();
+        expect(userRepository.update).not.toHaveBeenCalled();
       });
 
       it('registers a failure with the abuse guard', async () => {
@@ -161,7 +163,7 @@ describe('AccountService', () => {
           service.updateAccount(1, { currentPassword: 'current-password', username: 'taken-username' }),
         ).rejects.toThrow(new ConflictException('Username already in use'));
 
-        expect(userRepository.save).not.toHaveBeenCalled();
+        expect(userRepository.update).not.toHaveBeenCalled();
       });
 
       it('registers a failure with the abuse guard', async () => {
@@ -185,7 +187,7 @@ describe('AccountService', () => {
           service.updateAccount(1, { currentPassword: 'current-password', email: 'taken@example.com' }),
         ).rejects.toThrow(new ConflictException('Email already in use'));
 
-        expect(userRepository.save).not.toHaveBeenCalled();
+        expect(userRepository.update).not.toHaveBeenCalled();
       });
 
       it('registers a failure with the abuse guard', async () => {
@@ -225,7 +227,7 @@ describe('AccountService', () => {
         ).rejects.toThrow(HttpException);
 
         expect(accountEditAbuseGuardService.registerFailure).not.toHaveBeenCalled();
-        expect(userRepository.save).not.toHaveBeenCalled();
+        expect(userRepository.update).not.toHaveBeenCalled();
       });
     });
 
@@ -248,7 +250,36 @@ describe('AccountService', () => {
         });
 
         expect(authService.assertAvailableForUpdate).toHaveBeenCalledWith(1, undefined, undefined);
-        expect(userRepository.save).toHaveBeenCalled();
+        expect(userRepository.update).toHaveBeenCalled();
+      });
+    });
+
+    describe('when a deny commits between the user load and the persist', () => {
+      let storedRow: User;
+
+      beforeEach(() => {
+        storedRow = { ...user, status: UserStatus.APPROVED };
+        // The caller gets its own copy of the row (as a real DB read would); right after the
+        // load, an admin's deny commits on the stored row.
+        userRepository.findOneBy.mockImplementation(async () => {
+          const loaded = { ...storedRow };
+          storedRow.status = UserStatus.DENIED;
+
+          return loaded;
+        });
+        userRepository.update.mockImplementation(async (_id, columns) => {
+          Object.assign(storedRow, columns);
+
+          return { affected: 1 };
+        });
+        userRepository.save.mockImplementation(async (entity) => Object.assign(storedRow, entity));
+      });
+
+      it('keeps the user denied while applying the account edit', async () => {
+        await service.updateAccount(1, { currentPassword: 'current-password', username: 'new-username' });
+
+        expect(storedRow.username).toBe('new-username');
+        expect(storedRow.status).toBe(UserStatus.DENIED);
       });
     });
 
