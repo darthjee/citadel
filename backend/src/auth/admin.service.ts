@@ -4,7 +4,7 @@ import { ILike, Repository } from 'typeorm';
 import { assertAnyFieldPresent } from './assert-any-field-present.js';
 import { AuthService } from './auth.service.js';
 import { AdminUpdateUserDto } from './dto/admin-update-user.dto.js';
-import { User } from './entities/user.entity.js';
+import { User, UserStatus } from './entities/user.entity.js';
 import { PasswordResetService } from './password-reset.service.js';
 import { UserUpdateService } from './user-update.service.js';
 import { MailService } from '../mail/mail.service.js';
@@ -51,20 +51,28 @@ export class AdminService {
   }
 
   /**
-   * Looks up accounts, optionally filtered by a search term.
+   * Looks up accounts, optionally filtered by a search term and/or a status
+   * (the two filters are ANDed).
    * @param {string} [q] - When present, matches case-insensitively against
    *   `username` or `email`; when absent, every account is returned (no
    *   pagination, per #41's scope).
+   * @param {UserStatus} [status] - When present, only users with that
+   *   status are returned (ANDed with each `q` branch).
    * @returns {Promise<User[]>} The matching users, `passwordDigest` included
    *   (serialization to the public shape happens in the controller).
    */
-  searchUsers(q?: string): Promise<User[]> {
+  searchUsers(q?: string, status?: UserStatus): Promise<User[]> {
+    const statusFilter = status ? { status } : {};
+
     if (!q) {
-      return this.userRepository.find();
+      return status ? this.userRepository.find({ where: statusFilter }) : this.userRepository.find();
     }
 
     return this.userRepository.find({
-      where: [{ username: ILike(`%${q}%`) }, { email: ILike(`%${q}%`) }],
+      where: [
+        { username: ILike(`%${q}%`), ...statusFilter },
+        { email: ILike(`%${q}%`), ...statusFilter },
+      ],
     });
   }
 

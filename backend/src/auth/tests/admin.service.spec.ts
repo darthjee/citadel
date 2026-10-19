@@ -3,7 +3,7 @@ import { ILike } from 'typeorm';
 import { MailService } from '../../mail/mail.service.js';
 import { AdminService } from '../admin.service.js';
 import { AuthService } from '../auth.service.js';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 import { PasswordResetService } from '../password-reset.service.js';
 import { UserUpdateService } from '../user-update.service.js';
 
@@ -64,6 +64,31 @@ describe('AdminService', () => {
         expect(result).toBe(users);
         expect(userRepository.find).toHaveBeenCalledWith({
           where: [{ username: ILike('%darth%') }, { email: ILike('%darth%') }],
+        });
+      });
+    });
+
+    describe.each(Object.values(UserStatus))('when only status %s is given', (status) => {
+      it('filters by that status alone', async () => {
+        const users = [{ id: 1, status } as User];
+        userRepository.find.mockResolvedValue(users);
+
+        await expect(service.searchUsers(undefined, status)).resolves.toBe(users);
+        expect(userRepository.find).toHaveBeenCalledWith({ where: { status } });
+      });
+    });
+
+    describe('when both a query and a status are given', () => {
+      it('ANDs the status into both ILike branches', async () => {
+        userRepository.find.mockResolvedValue([]);
+
+        await service.searchUsers('darth', UserStatus.PENDING);
+
+        expect(userRepository.find).toHaveBeenCalledWith({
+          where: [
+            { username: ILike('%darth%'), status: UserStatus.PENDING },
+            { email: ILike('%darth%'), status: UserStatus.PENDING },
+          ],
         });
       });
     });
