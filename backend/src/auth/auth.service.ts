@@ -114,14 +114,11 @@ export class AuthService {
   }
 
   /**
-   * Rotates a refresh token within its session (same `sessionUuid`/`startedAt`).
-   *
-   * Check order: unknown → `401`; expired → `401`; revoked `rotated` → replay
-   * detection (a compromise signal: every active token of the user is revoked
-   * with `replay_detected`), then `401`; revoked for any other reason → `401`.
-   *
-   * The rotation itself is atomic and single-winner (see
-   * `TokenService#rotateTokens`).
+   * Rotates a refresh token within its session, atomically and single-winner
+   * (see `TokenService#rotateTokens`). Check order: unknown → `401`; expired →
+   * `401`; revoked `rotated` → replay detection (a compromise signal: every
+   * active token of the user is revoked with `replay_detected`), then `401`;
+   * revoked for any other reason → `401`.
    * @param {string} refreshToken - The refresh token presented by the client.
    * @returns {Promise<AuthResult>} The user plus the newly issued token pair.
    * @throws {UnauthorizedException} When the token is unknown, expired,
@@ -139,15 +136,25 @@ export class AuthService {
   }
 
   /**
-   * Invalidates a refresh token server-side, ending the session it
-   * belongs to.
-   * @param {string} refreshToken - The refresh token to invalidate.
-   * @returns {Promise<void>} Resolves once the token has been revoked.
+   * Ends the presented token's whole session: resolves its `sessionUuid`
+   * (whatever the token's own state, so a stale rotated token still works)
+   * and revokes every active row of that session with `logout`. Other
+   * sessions of the user are untouched; an unknown token does nothing.
+   * @param {string} refreshToken - The refresh token identifying the session.
+   * @returns {Promise<void>} Resolves once the session has been revoked.
    */
   async logout(refreshToken: string): Promise<void> {
     const tokenHash = this.tokenService.hashToken(refreshToken);
+    const tokenRow = await this.refreshTokenRepository.findOneBy({ tokenHash });
 
-    await this.refreshTokenRepository.update({ tokenHash }, { revokedAt: new Date() });
+    if (!tokenRow) {
+      return;
+    }
+
+    await this.refreshTokenRepository.update(
+      { sessionUuid: tokenRow.sessionUuid, revokedAt: IsNull() },
+      { revokedAt: new Date(), revokedReason: RevokedReason.LOGOUT },
+    );
   }
 
   /**

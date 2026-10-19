@@ -3,6 +3,7 @@ import request from 'supertest';
 import { loginAs, useTestApp } from './auth.controller.e2e-test-support.js';
 import { expectErrorBody } from './support/error-body.js';
 import { ErrorCodes } from '../../core/error-codes.js';
+import { hashToken } from '../../core/token-hash.js';
 
 describe('AuthController (e2e)', () => {
   const ctx = useTestApp();
@@ -108,6 +109,27 @@ describe('AuthController (e2e)', () => {
         .post('/auth/refresh.json')
         .send({ refreshToken: login.body.refreshToken })
         .expect(401);
+    });
+
+    it('revokes active tokens with password_reset, leaving earlier revoked rows\' reasons untouched', async () => {
+      const login = await loginAs(ctx.app);
+      const refreshed = await request(ctx.app.getHttpServer())
+        .post('/auth/refresh.json')
+        .send({ refreshToken: login.body.refreshToken })
+        .expect(201);
+      const token = await requestRecoveryToken('darthjee@example.com');
+
+      await request(ctx.app.getHttpServer())
+        .post('/auth/reset-password.json')
+        .send({ token, password: 'brand-new-password' })
+        .expect(200);
+
+      const reasonOf = (refreshToken: string): string | null | undefined =>
+        ctx.refreshTokenRepo.rows.find((row) => row.tokenHash === hashToken(refreshToken))?.revokedReason;
+
+      expect(reasonOf(login.body.refreshToken)).toBe('rotated');
+      expect(reasonOf(refreshed.body.refreshToken)).toBe('password_reset');
+      expect(ctx.refreshTokenRepo.rows.every((row) => row.revokedAt)).toBe(true);
     });
 
     it('rejects an unknown token with a 400 BAD_REQUEST error body, not 401', async () => {

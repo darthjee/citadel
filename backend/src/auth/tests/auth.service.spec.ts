@@ -413,14 +413,30 @@ describe('AuthService', () => {
   });
 
   describe('logout', () => {
-    it('revokes the matching refresh token by its hash', async () => {
+    const sessionUuid = '11111111-2222-4333-8444-555555555555';
+
+    it.each([
+      ['an active', { revokedAt: null, revokedReason: null }],
+      ['a rotated (stale)', { revokedAt: new Date(), revokedReason: RevokedReason.ROTATED }],
+      ['an expired', { expiresAt: new Date(Date.now() - 1000) }],
+    ])('revokes every active row of %s token\'s session with logout', async (_label, state) => {
+      refreshTokenRepository.findOneBy.mockResolvedValue({ ...activeToken, sessionUuid, ...state });
+
       await service.logout('a-refresh-token');
 
-      expect(tokenService.hashToken).toHaveBeenCalledWith('a-refresh-token');
+      expect(refreshTokenRepository.findOneBy).toHaveBeenCalledWith({ tokenHash: 'hashed:a-refresh-token' });
       expect(refreshTokenRepository.update).toHaveBeenCalledWith(
-        { tokenHash: 'hashed:a-refresh-token' },
-        { revokedAt: expect.any(Date) },
+        { sessionUuid, revokedAt: IsNull() },
+        { revokedAt: expect.any(Date), revokedReason: RevokedReason.LOGOUT },
       );
+    });
+
+    it('does nothing for an unknown token', async () => {
+      refreshTokenRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.logout('unknown-token')).resolves.toBeUndefined();
+
+      expect(refreshTokenRepository.update).not.toHaveBeenCalled();
     });
   });
 
@@ -434,7 +450,7 @@ describe('AuthService', () => {
         passwordResetService.resetPassword.mockResolvedValue(1);
       });
 
-      it('revokes every other refresh token belonging to that user', async () => {
+      it('revokes only the active refresh tokens of that user, with password_reset', async () => {
         await service.resetPassword({ token: 'a-token', password: 'new-password' });
 
         expect(refreshTokenRepository.update).toHaveBeenCalledWith(

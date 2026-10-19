@@ -77,6 +77,61 @@ describe('AuthController (e2e)', () => {
     });
   });
 
+  describe('session-wide logout', () => {
+    async function refresh(refreshToken: string): Promise<request.Response> {
+      return request(ctx.app.getHttpServer()).post('/auth/refresh.json').send({ refreshToken });
+    }
+
+    async function logout(refreshToken: string): Promise<void> {
+      await request(ctx.app.getHttpServer()).delete('/auth/logoff.json').send({ refreshToken }).expect(204);
+    }
+
+    function activeRowsOf(sessionUuid: string): RefreshToken[] {
+      return ctx.refreshTokenRepo.rows.filter((row) => row.sessionUuid === sessionUuid && !row.revokedAt);
+    }
+
+    it('ends the session with a stale (rotated) token, leaving the user\'s other sessions active', async () => {
+      const first = await loginAs(ctx.app).expect(201);
+      const second = await loginAs(ctx.app).expect(201);
+      const firstSession = rowOf(first.body.refreshToken).sessionUuid;
+      const secondSession = rowOf(second.body.refreshToken).sessionUuid;
+
+      const refreshed = await refresh(first.body.refreshToken);
+      expect(refreshed.status).toBe(201);
+
+      await logout(first.body.refreshToken);
+
+      expect(activeRowsOf(firstSession)).toHaveLength(0);
+      expect(rowOf(refreshed.body.refreshToken).revokedReason).toBe('logout');
+      expect(rowOf(first.body.refreshToken).revokedReason).toBe('rotated');
+      expect(activeRowsOf(secondSession)).toHaveLength(1);
+      expect((await refresh(second.body.refreshToken)).status).toBe(201);
+    });
+
+    it('answers a replayed logout token with 401, without revoking other sessions', async () => {
+      const first = await loginAs(ctx.app).expect(201);
+      const second = await loginAs(ctx.app).expect(201);
+      const secondSession = rowOf(second.body.refreshToken).sessionUuid;
+
+      await logout(first.body.refreshToken);
+
+      expect((await refresh(first.body.refreshToken)).status).toBe(401);
+      expect(rowOf(first.body.refreshToken).revokedReason).toBe('logout');
+      expect(activeRowsOf(secondSession)).toHaveLength(1);
+    });
+
+    it('answers a replayed rotated token with 401, revoking every active token with replay_detected', async () => {
+      const first = await loginAs(ctx.app).expect(201);
+      const second = await loginAs(ctx.app).expect(201);
+      const refreshed = await refresh(first.body.refreshToken);
+
+      expect((await refresh(first.body.refreshToken)).status).toBe(401);
+      expect(rowOf(first.body.refreshToken).revokedReason).toBe('rotated');
+      expect(rowOf(refreshed.body.refreshToken).revokedReason).toBe('replay_detected');
+      expect(rowOf(second.body.refreshToken).revokedReason).toBe('replay_detected');
+    });
+  });
+
   describe('status check', () => {
     it('resolves loggedIn: true for an active refresh token', async () => {
       const login = await loginAs(ctx.app);
