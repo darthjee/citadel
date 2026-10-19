@@ -197,7 +197,7 @@ export class AuthService {
   async resetPassword(dto: ResetPasswordDto): Promise<void> {
     const userId = await this.passwordResetService.resetPassword(dto);
 
-    await this.#revokeTokenFamily(userId, RevokedReason.PASSWORD_RESET);
+    await this.tokenService.revokeUserTokens(userId, RevokedReason.PASSWORD_RESET);
   }
 
   /**
@@ -264,20 +264,13 @@ export class AuthService {
 
     if (tokenRow.revokedAt) {
       if (tokenRow.revokedReason === RevokedReason.ROTATED) {
-        await this.#revokeTokenFamily(tokenRow.userId, RevokedReason.REPLAY_DETECTED);
+        await this.tokenService.revokeUserTokens(tokenRow.userId, RevokedReason.REPLAY_DETECTED);
       }
 
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
     return tokenRow;
-  }
-
-  async #revokeTokenFamily(userId: number, reason: RevokedReason): Promise<void> {
-    await this.refreshTokenRepository.update(
-      { userId, revokedAt: IsNull() },
-      { revokedAt: new Date(), revokedReason: reason },
-    );
   }
 
   async #validateCredentials(username: string, password: string): Promise<User> {

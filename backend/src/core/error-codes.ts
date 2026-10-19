@@ -18,6 +18,8 @@ export const ErrorCodes = {
   USERNAME_TAKEN: 'USERNAME_TAKEN',
   EMAIL_TAKEN: 'EMAIL_TAKEN',
   USER_DENIED: 'USER_DENIED',
+  USER_NOT_PENDING: 'USER_NOT_PENDING',
+  CANNOT_DENY_SELF: 'CANNOT_DENY_SELF',
 } as const;
 
 // Message used for every unexpected (non-HTTP) error — the real message and

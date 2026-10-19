@@ -1,11 +1,13 @@
-import { Body, Controller, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { AdminService } from './admin.service.js';
 import { AdminUpdateUserDto } from './dto/admin-update-user.dto.js';
 import { SearchUsersDto } from './dto/search-users.dto.js';
 import { User } from './entities/user.entity.js';
+import type { AccessTokenPayload } from '../core/access-token-payload.js';
 import { AdminOnly } from '../core/admin-only.decorator.js';
 import { CacheClass } from '../core/cache-class.js';
 import { CachePolicy } from '../core/cache-policy.decorator.js';
+import { CurrentUser } from '../core/current-user.decorator.js';
 
 /**
  * Admin-only routes for #41's user-lookup/password-recovery tool — thin,
@@ -30,11 +32,41 @@ export class AdminController {
   }
 
   /**
+   * `POST /admin/users/:id/approve.json`. Approves a `pending` user (no
+   * body); answers `422 USER_NOT_PENDING` for any other status.
+   * @param {number} id - The id of the user to approve.
+   * @returns {Promise<object>} `{ user: { id, username, email, isAdmin, createdAt, status } }`.
+   */
+  @Post('users/:id/approve.json')
+  @HttpCode(HttpStatus.OK)
+  async approve(@Param('id', ParseIntPipe) id: number): Promise<object> {
+    const user = await this.adminService.approveUser(id);
+
+    return { user: this.#serializeUser(user) };
+  }
+
+  /**
+   * `POST /admin/users/:id/deny.json`. Denies any user but the caller (no
+   * body) and logs them out everywhere; answers `422 CANNOT_DENY_SELF` for
+   * the caller's own id.
+   * @param {number} id - The id of the user to deny.
+   * @param {AccessTokenPayload} caller - The authenticated admin (from the access token).
+   * @returns {Promise<object>} `{ user: { id, username, email, isAdmin, createdAt, status } }`.
+   */
+  @Post('users/:id/deny.json')
+  @HttpCode(HttpStatus.OK)
+  async deny(@Param('id', ParseIntPipe) id: number, @CurrentUser() caller: AccessTokenPayload): Promise<object> {
+    const user = await this.adminService.denyUser(id, caller.sub);
+
+    return { user: this.#serializeUser(user) };
+  }
+
+  /**
    * `POST /admin/users/:id/edit.json`. Updates a target user's username,
    * email, and/or password on the admin's behalf.
    * @param {number} id - The id of the user to update.
    * @param {AdminUpdateUserDto} dto - The requested changes.
-   * @returns {Promise<object>} `{ user: { id, username, email, isAdmin, createdAt } }`.
+   * @returns {Promise<object>} `{ user: { id, username, email, isAdmin, createdAt, status } }`.
    */
   @Post('users/:id/edit.json')
   async edit(
@@ -60,15 +92,17 @@ export class AdminController {
 
   /**
    * `POST /admin/users/search.json`. Looks up accounts, optionally filtered
-   * by `dto.q`.
-   * @param {SearchUsersDto} dto - Carries the optional search term.
-   * @returns {Promise<object>} `{ users: [{ id, username, email, isAdmin, createdAt }] }`.
+   * by `dto.q` and/or `dto.status` (ANDed).
+   * @param {SearchUsersDto} dto - Carries the optional search term and status.
+   * @param {AccessTokenPayload} caller - The authenticated admin (from the access token).
+   * @returns {Promise<object>} `{ users: [{ id, username, email, isAdmin, createdAt, status }],
+   *   currentUserId }`.
    */
   @Post('users/search.json')
-  async search(@Body() dto: SearchUsersDto): Promise<object> {
-    const users = await this.adminService.searchUsers(dto.q);
+  async search(@Body() dto: SearchUsersDto, @CurrentUser() caller: AccessTokenPayload): Promise<object> {
+    const users = await this.adminService.searchUsers(dto.q, dto.status);
 
-    return { users: users.map((user) => this.#serializeUser(user)) };
+    return { users: users.map((user) => this.#serializeUser(user)), currentUserId: caller.sub };
   }
 
   /**
@@ -91,6 +125,7 @@ export class AdminController {
       email: user.email,
       isAdmin: user.isAdmin,
       createdAt: user.createdAt,
+      status: user.status,
     };
   }
 }
