@@ -20,9 +20,12 @@ export default function AdminUsers() {
   const [users, setUsers] = useState(INITIAL_USERS);
   const [rowResults, setRowResults] = useState(INITIAL_ROW_RESULTS);
   const [searchError, setSearchError] = useState(null);
+  const [, setCurrentUserId] = useState(null);
 
   const controller = useMemo(
-    () => new AdminUsersController(setUsers, setRowResults, setSearchError),
+    () => new AdminUsersController({
+      setUsers, setCurrentUserId, setRowResults, setSearchError,
+    }),
     [],
   );
 
