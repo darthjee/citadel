@@ -19,7 +19,9 @@ export interface AccountSummary {
  * caller's current password) and `AdminService#editUser` (admin-driven,
  * no current-password confirmation) — both validate availability
  * beforehand via `AuthService#assertAvailableForUpdate` and differ only in
- * how the target user and permission are established.
+ * how the target user and permission are established. Only the edited
+ * columns are ever written (never `status`), so a concurrent approve/deny
+ * cannot be reverted by an in-flight edit.
  */
 @Injectable()
 export class UserUpdateService {
@@ -34,8 +36,14 @@ export class UserUpdateService {
 
   /**
    * Applies a set of account changes to a user: mutates the provided
-   * `username`/`email` fields, hashes and stores a new password when
-   * given, and persists the result.
+   * `username`/`email` fields on the in-memory row, hashes a new password
+   * when given, and persists **only those changed columns** through
+   * `Repository#update(id, changes)`. It deliberately never calls
+   * `save(user)`: that would write back every loaded column, `status`
+   * included, so a deny (or approve) committing between the caller's load
+   * and this persist would be silently reverted by the stale in-memory
+   * status. Columns the edit doesn't own (`status`, `isAdmin`, ...) are
+   * therefore never written. When no field changes, nothing is persisted.
    * @param {User} user - The user row to update (already loaded by the caller).
    * @param {object} changes - The fields to change.
    * @param {string} [changes.username] - The new username, when being changed.
@@ -47,20 +55,33 @@ export class UserUpdateService {
     user: User,
     changes: { username?: string; email?: string; newPassword?: string },
   ): Promise<AccountSummary> {
+    const columns = await this.#changedColumns(changes);
+
+    if (Object.keys(columns).length > 0) {
+      await this.userRepository.update(user.id, columns);
+      Object.assign(user, columns);
+    }
+
+    return { username: user.username, email: user.email };
+  }
+
+  async #changedColumns(
+    changes: { username?: string; email?: string; newPassword?: string },
+  ): Promise<Partial<Pick<User, 'username' | 'email' | 'passwordDigest'>>> {
+    const columns: Partial<Pick<User, 'username' | 'email' | 'passwordDigest'>> = {};
+
     if (changes.username) {
-      user.username = changes.username;
+      columns.username = changes.username;
     }
 
     if (changes.email) {
-      user.email = changes.email;
+      columns.email = changes.email;
     }
 
     if (changes.newPassword) {
-      user.passwordDigest = await bcrypt.hash(changes.newPassword, 10);
+      columns.passwordDigest = await bcrypt.hash(changes.newPassword, 10);
     }
 
-    const saved = await this.userRepository.save(user);
-
-    return { username: saved.username, email: saved.email };
+    return columns;
   }
 }

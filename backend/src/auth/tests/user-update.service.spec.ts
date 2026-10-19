@@ -1,14 +1,16 @@
 import bcrypt from 'bcryptjs';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 import { UserUpdateService } from '../user-update.service.js';
 
 type RepoMock<T extends object> = {
   save: jest.Mock;
+  update: jest.Mock;
 } & Partial<T>;
 
 function repoMock<T extends object>(): RepoMock<T> {
   return {
     save: jest.fn(async (entity) => entity),
+    update: jest.fn(async () => ({ affected: 1 })),
   } as RepoMock<T>;
 }
 
@@ -26,6 +28,7 @@ describe('UserUpdateService', () => {
       email: 'darthjee@example.com',
       passwordDigest: originalDigest,
       isAdmin: false,
+      status: UserStatus.APPROVED,
     } as User;
 
     userRepository = repoMock<User>();
@@ -71,7 +74,7 @@ describe('UserUpdateService', () => {
     });
 
     describe('when username, email, and newPassword are all given', () => {
-      it('applies all three changes and persists the user', async () => {
+      it('applies all three changes and persists only those columns', async () => {
         const result = await service.applyUserUpdate(user, {
           username: 'new-username',
           email: 'new-email@example.com',
@@ -79,17 +82,36 @@ describe('UserUpdateService', () => {
         });
 
         expect(result).toEqual({ username: 'new-username', email: 'new-email@example.com' });
-        expect(userRepository.save).toHaveBeenCalledWith(user);
+        expect(userRepository.update).toHaveBeenCalledWith(1, {
+          username: 'new-username',
+          email: 'new-email@example.com',
+          passwordDigest: user.passwordDigest,
+        });
+        expect(userRepository.save).not.toHaveBeenCalled();
       });
     });
 
     describe('when no changes are given', () => {
-      it('persists the user unchanged', async () => {
+      it('persists nothing and returns the unchanged { username, email }', async () => {
         const result = await service.applyUserUpdate(user, {});
 
         expect(result).toEqual({ username: 'darthjee', email: 'darthjee@example.com' });
-        expect(userRepository.save).toHaveBeenCalledWith(user);
+        expect(userRepository.update).not.toHaveBeenCalled();
+        expect(userRepository.save).not.toHaveBeenCalled();
       });
+    });
+
+    it.each([
+      ['username', { username: 'new-username' }],
+      ['email', { email: 'new-email@example.com' }],
+      ['newPassword', { newPassword: 'brand-new-password' }],
+    ])('never writes status (or any column it does not own) when changing %s', async (_field, changes) => {
+      await service.applyUserUpdate(user, changes);
+
+      const [, columns] = userRepository.update.mock.calls[0];
+
+      expect(Object.keys(columns).every((key) => ['username', 'email', 'passwordDigest'].includes(key))).toBe(true);
+      expect(columns).not.toHaveProperty('status');
     });
   });
 });

@@ -432,6 +432,44 @@ describe('AdminService', () => {
       });
     });
 
+    describe('when a deny commits between the user load and the persist', () => {
+      let storedRow: User;
+
+      beforeEach(() => {
+        storedRow = { id: 1, username: 'darthjee', email: 'darthjee@example.com', status: UserStatus.APPROVED } as User;
+        // Every read returns a fresh copy of the row (as a real DB read would); right after the
+        // edit's first load, a concurrent deny commits on the stored row.
+        userRepository.findOneBy.mockImplementationOnce(async () => {
+          const loaded = { ...storedRow };
+          storedRow.status = UserStatus.DENIED;
+
+          return loaded;
+        });
+        userRepository.findOneBy.mockImplementation(async () => ({ ...storedRow }));
+        userRepository.update.mockImplementation(async (_id, columns) => {
+          Object.assign(storedRow, columns);
+
+          return { affected: 1 };
+        });
+
+        service = new AdminService(
+          userRepository as never,
+          authService as unknown as AuthService,
+          passwordResetService as unknown as PasswordResetService,
+          mailService as unknown as MailService,
+          new UserUpdateService(userRepository as never),
+          tokenService as unknown as TokenService,
+        );
+      });
+
+      it('keeps the user denied while applying the admin edit', async () => {
+        const result = await service.editUser(1, { username: 'vader' });
+
+        expect(storedRow).toEqual(expect.objectContaining({ username: 'vader', status: UserStatus.DENIED }));
+        expect(result).toEqual(expect.objectContaining({ username: 'vader', status: UserStatus.DENIED }));
+      });
+    });
+
     describe('when no username, email, or newPassword is provided', () => {
       it('rejects with BadRequestException without loading the user', async () => {
         await expect(service.editUser(1, {})).rejects.toThrow(BadRequestException);
