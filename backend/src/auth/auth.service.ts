@@ -10,10 +10,11 @@ import { RegisterDto } from './dto/register.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { compareOrDummy } from './dummy-digest.js';
 import { RefreshToken, RevokedReason } from './entities/refresh-token.entity.js';
-import { User, UserStatus } from './entities/user.entity.js';
+import { User } from './entities/user.entity.js';
 import { UserRegisteredEvent } from './events/user-registered.event.js';
 import { PasswordResetService } from './password-reset.service.js';
 import { TokenService, type AuthResult } from './token.service.js';
+import { UserApprovalConfig } from './user-approval.config.js';
 
 export type { AuthResult };
 
@@ -35,6 +36,7 @@ export class AuthService {
   private readonly tokenService: TokenService;
   private readonly eventEmitter: EventEmitter2;
   private readonly passwordResetService: PasswordResetService;
+  private readonly userApprovalConfig: UserApprovalConfig;
 
   /**
    * @param {Repository<User>} userRepository - The Auth module's user repository.
@@ -46,6 +48,8 @@ export class AuthService {
    * @param {PasswordResetService} passwordResetService - The password
    *   recovery/reset flow's business logic, delegated to for `recover`/
    *   `resetPassword`.
+   * @param {UserApprovalConfig} userApprovalConfig - Decides the status a new
+   *   self-registration is stored with.
    */
   constructor(
     @InjectRepository(User) userRepository: Repository<User>,
@@ -53,17 +57,21 @@ export class AuthService {
       tokenService: TokenService,
       eventEmitter: EventEmitter2,
       passwordResetService: PasswordResetService,
+      userApprovalConfig: UserApprovalConfig,
   ) {
     this.userRepository = userRepository;
     this.refreshTokenRepository = refreshTokenRepository;
     this.tokenService = tokenService;
     this.eventEmitter = eventEmitter;
     this.passwordResetService = passwordResetService;
+    this.userApprovalConfig = userApprovalConfig;
   }
 
   /**
    * Registers a new user and immediately logs them in (issues tokens),
-   * per the issue's JWT flow ("issued on login/register/refresh").
+   * per the issue's JWT flow ("issued on login/register/refresh"). The user is
+   * stored with `UserApprovalConfig#registrationStatus()`; a `pending` user still
+   * gets a real session, which the gate blocks until approval.
    * @param {RegisterDto} dto - The registration payload.
    * @returns {Promise<AuthResult>} The created user plus access/refresh tokens.
    * @throws {ConflictException} When the username/email are already taken (`USERNAME_TAKEN`/`EMAIL_TAKEN`).
@@ -78,7 +86,7 @@ export class AuthService {
         email: dto.email,
         passwordDigest,
         isAdmin: false,
-        status: UserStatus.APPROVED,
+        status: this.userApprovalConfig.registrationStatus(),
       }),
     );
 

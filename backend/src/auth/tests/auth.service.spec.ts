@@ -5,9 +5,10 @@ import { IsNull } from 'typeorm';
 import { ErrorCodes } from '../../core/error-codes.js';
 import { AuthService } from '../auth.service.js';
 import { RefreshToken, RevokedReason } from '../entities/refresh-token.entity.js';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 import { PasswordResetService } from '../password-reset.service.js';
 import { TokenService } from '../token.service.js';
+import { UserApprovalConfig } from '../user-approval.config.js';
 import { repoMock, RepoMock } from './repo-mock.test-support.js';
 
 describe('AuthService', () => {
@@ -16,7 +17,19 @@ describe('AuthService', () => {
   let tokenService: { issueTokens: jest.Mock; rotateTokens: jest.Mock; hashToken: jest.Mock };
   let eventEmitter: { emit: jest.Mock };
   let passwordResetService: { recover: jest.Mock; resetPassword: jest.Mock };
+  let userApprovalConfig: UserApprovalConfig;
   let service: AuthService;
+
+  function buildService(): AuthService {
+    return new AuthService(
+      userRepository as never,
+      refreshTokenRepository as never,
+      tokenService as unknown as TokenService,
+      eventEmitter as unknown as EventEmitter2,
+      passwordResetService as unknown as PasswordResetService,
+      userApprovalConfig,
+    );
+  }
 
   const activeToken = { id: 10, userId: 1, revokedAt: null, expiresAt: new Date(Date.now() + 60_000) };
 
@@ -49,14 +62,9 @@ describe('AuthService', () => {
     };
     eventEmitter = { emit: jest.fn() };
     passwordResetService = { recover: jest.fn(), resetPassword: jest.fn() };
+    userApprovalConfig = new UserApprovalConfig(false);
 
-    service = new AuthService(
-      userRepository as never,
-      refreshTokenRepository as never,
-      tokenService as unknown as TokenService,
-      eventEmitter as unknown as EventEmitter2,
-      passwordResetService as unknown as PasswordResetService,
-    );
+    service = buildService();
   });
 
   describe('login', () => {
@@ -185,6 +193,21 @@ describe('AuthService', () => {
 
         expect(passwordDigest).not.toBe('my-password');
         await expect(bcrypt.compare('my-password', passwordDigest)).resolves.toBe(true);
+      });
+
+      it('stores the user as approved when approval is not required', async () => {
+        await service.register({ username: 'darthjee', email: 'darthjee@example.com', password: 'my-password' });
+
+        expect(userRepository.create.mock.calls[0][0].status).toBe(UserStatus.APPROVED);
+      });
+
+      it('stores the user as pending when approval is required', async () => {
+        userApprovalConfig = new UserApprovalConfig(true);
+        service = buildService();
+
+        await service.register({ username: 'darthjee', email: 'darthjee@example.com', password: 'my-password' });
+
+        expect(userRepository.create.mock.calls[0][0].status).toBe(UserStatus.PENDING);
       });
 
       it('emits a user.registered event with the created user', async () => {
