@@ -3,6 +3,7 @@ import { loginAs, useTestApp } from './auth.controller.e2e-test-support.js';
 import { expectErrorBody } from './support/error-body.js';
 import { ErrorCodes } from '../../core/error-codes.js';
 import { hashToken } from '../../core/token-hash.js';
+import { UserStatus } from '../entities/user.entity.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -53,6 +54,51 @@ describe('AuthController (e2e)', () => {
       expect(cookie).toMatch(/HttpOnly/);
       expect(cookie).toMatch(/Secure/);
       expect(cookie).toMatch(/SameSite=Strict/);
+    });
+  });
+
+  describe('login by account status', () => {
+    function setStatus(status: UserStatus): void {
+      ctx.userRepo.rows[0].status = status;
+    }
+
+    it('answers a denied user with a wrong password with the same 401 as an unknown user', async () => {
+      setStatus(UserStatus.DENIED);
+
+      const denied = await loginAs(ctx.app, 'darthjee', 'wrong-password');
+      const unknown = await loginAs(ctx.app, 'nobody', 'wrong-password');
+
+      expectErrorBody(denied, { status: 401, code: ErrorCodes.UNAUTHORIZED, message: 'Invalid username or password' });
+      expect(denied.body.error).toEqual(unknown.body.error);
+      expect(denied.body.statusCode).toBe(unknown.body.statusCode);
+    });
+
+    it('answers a denied user with the correct password with 403 USER_DENIED and no session', async () => {
+      setStatus(UserStatus.DENIED);
+      const rowsBefore = ctx.refreshTokenRepo.rows.length;
+
+      const response = await loginAs(ctx.app);
+
+      expectErrorBody(response, {
+        status: 403,
+        code: ErrorCodes.USER_DENIED,
+        message: 'This account has been denied access',
+      });
+      expect(response.headers['set-cookie']).toBeUndefined();
+      expect(response.body).not.toHaveProperty('refreshToken');
+      expect(ctx.refreshTokenRepo.rows).toHaveLength(rowsBefore);
+    });
+
+    it('logs a pending user in with a session, in the same shape as an approved one', async () => {
+      const approved = await loginAs(ctx.app).expect(201);
+      setStatus(UserStatus.PENDING);
+
+      const pending = await loginAs(ctx.app).expect(201);
+
+      expect(pending.body).toEqual({ ...approved.body, refreshToken: expect.any(String) });
+      expect(pending.body.user).not.toHaveProperty('status');
+      expect(pending.headers['set-cookie'][0]).toMatch(/^access_token=/);
+      expect(ctx.refreshTokenRepo.rows.some((row) => row.tokenHash === hashToken(pending.body.refreshToken))).toBe(true);
     });
   });
 

@@ -35,8 +35,8 @@ export function matchesCondition(rowValue: unknown, conditionValue: unknown): bo
 // inject mocked TypeORM repositories rather than hitting a live database.
 // Shared by every auth e2e spec/support file — includes a
 // `createQueryBuilder().update().set().where().execute()` stub, needed by
-// `AuthorizationRequestService`'s atomic `approved → logged` claim: the
-// guarded `UPDATE ... WHERE status = 'approved'` is simulated by
+// `AuthorizationRequestService`'s atomic `approved → logged` claim and
+// `logged → denied` re-check: the guarded `UPDATE ... WHERE status = :status` is simulated by
 // checking+mutating the matching row synchronously inside `execute()`, so
 // two concurrent callers still race exactly like a real guarded SQL
 // `UPDATE` would.
@@ -134,7 +134,8 @@ export function createInMemoryRepo<T extends { id?: number }>() {
         },
         execute: async (): Promise<{ affected: number }> => {
           const row = rows.find(
-            (candidate) => (candidate as never)['uuid'] === whereParams.uuid && (candidate as never)['status'] === 'approved',
+            (candidate) =>
+              (candidate as never)['uuid'] === whereParams.uuid && (candidate as never)['status'] === whereParams.status,
           );
 
           if (!row) {

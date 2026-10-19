@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AccountEditAbuseGuardService } from './account-edit-abuse-guard.service.js';
 import { AccountService } from './account.service.js';
@@ -17,8 +18,10 @@ import { RefreshToken } from './entities/refresh-token.entity.js';
 import { User } from './entities/user.entity.js';
 import { PasswordRecoveryRequestedListener } from './events/password-recovery-requested.listener.js';
 import { PasswordResetService } from './password-reset.service.js';
+import { SessionStatusService } from './session-status.service.js';
 import { SessionService } from './session.service.js';
 import { TokenService } from './token.service.js';
+import { UserApprovalConfig } from './user-approval.config.js';
 import { UserUpdateService } from './user-update.service.js';
 import { SESSION_LOOKUP } from '../core/session-lookup.js';
 
@@ -56,7 +59,14 @@ import { SESSION_LOOKUP } from '../core/session-lookup.js';
     AuthorizationRequestAbuseGuardService,
     PasswordRecoveryRequestedListener,
     SessionService,
+    SessionStatusService,
     { provide: SESSION_LOOKUP, useExisting: SessionService },
+    {
+      provide: UserApprovalConfig,
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService): UserApprovalConfig =>
+        UserApprovalConfig.fromConfigService(configService),
+    },
   ],
   exports: [AuthService, SESSION_LOOKUP],
 })

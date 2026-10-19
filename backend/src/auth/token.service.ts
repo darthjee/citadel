@@ -129,6 +129,22 @@ export class TokenService {
   }
 
   /**
+   * Revokes one refresh-token row with `reason`, only while it is still
+   * unrevoked (`WHERE id = ? AND revoked_at IS NULL`), so an earlier
+   * revocation and its reason are never overwritten. Used for single-row
+   * revocations such as a denied user's presented token (`admin_denied`).
+   * @param {number} id - The refresh-token row id.
+   * @param {RevokedReason} reason - Why the token is revoked.
+   * @returns {Promise<void>} Resolves once the row has been revoked (or was already).
+   */
+  async revokeToken(id: number, reason: RevokedReason): Promise<void> {
+    await this.refreshTokenRepository.update(
+      { id, revokedAt: IsNull() },
+      { revokedAt: new Date(), revokedReason: reason },
+    );
+  }
+
+  /**
    * Hashes a plaintext token with SHA-256, as stored in
    * `auth_refresh_tokens.token_hash`. Exposed (rather than kept private) so
    * `AuthService`'s refresh-token read paths hash exactly the same way the

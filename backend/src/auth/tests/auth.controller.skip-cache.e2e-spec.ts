@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { loginAs, registerUser, useTestApp } from './auth.controller.e2e-test-support.js';
+import { UserStatus } from '../entities/user.entity.js';
 
 describe('AuthController (e2e)', () => {
   const ctx = useTestApp();
@@ -29,6 +30,32 @@ describe('AuthController (e2e)', () => {
       const response = await request(ctx.app.getHttpServer())
         .post('/auth/refresh.json')
         .send({ refreshToken: login.body.refreshToken })
+        .expect(201);
+
+      expect(response.headers['x-skip-cache']).toBe('true');
+      expect(response.headers['cache-control']).toBe('no-store');
+    });
+
+    it.each([UserStatus.APPROVED, UserStatus.PENDING, UserStatus.DENIED])(
+      'is set on the status response of a %s user, whose answer depends on the status',
+      async (status) => {
+        const login = await loginAs(ctx.app).expect(201);
+        ctx.userRepo.rows[0].status = status;
+
+        const response = await request(ctx.app.getHttpServer())
+          .post('/auth/status.json')
+          .send({ refreshToken: login.body.refreshToken })
+          .expect(201);
+
+        expect(response.headers['x-skip-cache']).toBe('true');
+        expect(response.headers['cache-control']).toBe('no-store');
+      },
+    );
+
+    it('is set on the anonymous status response', async () => {
+      const response = await request(ctx.app.getHttpServer())
+        .post('/auth/status.json')
+        .send({ refreshToken: 'not-a-real-token' })
         .expect(201);
 
       expect(response.headers['x-skip-cache']).toBe('true');

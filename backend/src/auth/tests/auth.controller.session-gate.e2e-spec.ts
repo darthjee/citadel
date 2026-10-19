@@ -2,10 +2,12 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
 import { loginAs, useTestApp } from './auth.controller.e2e-test-support.js';
+import { createAuthorizationRequest } from './authorization-request.controller.e2e-test-support.js';
 import { expectErrorBody } from './support/error-body.js';
 import { ErrorCodes } from '../../core/error-codes.js';
 import { hashToken } from '../../core/token-hash.js';
 import { RefreshToken } from '../entities/refresh-token.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 
 const INVALID = { status: 401, code: ErrorCodes.UNAUTHORIZED, message: 'Invalid or expired access token' };
 
@@ -95,6 +97,60 @@ describe('AuthController (e2e)', () => {
       rowOf(session.refreshToken).expiresAt = new Date(Date.now() - 1000);
 
       expectErrorBody(await getProtected(session.cookie), INVALID);
+    });
+
+    describe('approval status', () => {
+      function userRow(): User {
+        const row = ctx.userRepo.rows.find((candidate) => candidate.username === 'darthjee');
+
+        if (!row) {
+          throw new Error('user row not found');
+        }
+
+        return row;
+      }
+
+      it("answers a pending user's access token with the identical 401", async () => {
+        const session = await login();
+        userRow().status = UserStatus.PENDING;
+
+        const pending = await getProtected(session.cookie);
+        const unknown = await getProtected('access_token=not-a-valid-token');
+
+        expectErrorBody(pending, INVALID);
+        expect(pending.body.error).toEqual(unknown.body.error);
+      });
+
+      it('lets the same access token pass once the pending user is approved', async () => {
+        userRow().status = UserStatus.PENDING;
+        const session = await login();
+        expectErrorBody(await getProtected(session.cookie), INVALID);
+
+        userRow().status = UserStatus.APPROVED;
+
+        await getProtected(session.cookie).expect(200, { ok: true });
+      });
+
+      it("answers a denied user's access token with the identical 401", async () => {
+        const session = await login();
+        await getProtected(session.cookie).expect(200, { ok: true });
+        userRow().status = UserStatus.DENIED;
+
+        expectErrorBody(await getProtected(session.cookie), INVALID);
+      });
+
+      it('answers a pending approver calling authorize.json with the gate 401', async () => {
+        const session = await login();
+        const { uuid } = await createAuthorizationRequest(ctx.app, 'darthjee');
+        userRow().status = UserStatus.PENDING;
+
+        const response = await request(ctx.app.getHttpServer())
+          .post(`/auth/authorization-requests/${uuid}/authorize.json`)
+          .set('Cookie', [session.cookie])
+          .send({ password: 'my-password' });
+
+        expectErrorBody(response, INVALID);
+      });
     });
 
     it('mints, on refresh, an access token carrying the session uuid as sid, which passes the gate', async () => {

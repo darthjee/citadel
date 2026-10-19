@@ -1,6 +1,6 @@
 import type { SessionLookup, SessionUser } from '../../../core/session-lookup.js';
 import type { RefreshToken } from '../../entities/refresh-token.entity.js';
-import type { User } from '../../entities/user.entity.js';
+import { UserStatus, type User } from '../../entities/user.entity.js';
 
 // In-memory stand-in for `SessionService` (the `SESSION_LOOKUP` provider) in
 // the e2e harnesses: the real implementation runs a query-builder join of
@@ -8,8 +8,8 @@ import type { User } from '../../entities/user.entity.js';
 // repos (`createInMemoryRepo()`) cannot execute. It applies the same rules
 // over the repos' live `rows` arrays — an active session is a refresh-token
 // row with `sessionUuid === sid`, not revoked and not expired; its user is the
-// row with `id === userId`. The real query shape is covered by
-// `session.service.spec.ts`. No `status` rule yet (#5 adds it). Mirrors
+// row with `id === userId`, and only an `approved` user passes. The real query
+// shape is covered by `session.service.spec.ts`. Mirrors
 // https://github.com/darthjee/kerghan/blob/main/backend/src/auth/tests/support/in-memory-session-lookup.ts
 export class InMemorySessionLookup implements SessionLookup {
   private readonly users: User[];
@@ -25,7 +25,9 @@ export class InMemorySessionLookup implements SessionLookup {
     const session = this.refreshTokens.find(
       (row) => row.sessionUuid === sid && !row.revokedAt && row.expiresAt > now,
     );
-    const user = session && this.users.find((candidate) => candidate.id === session.userId);
+    const user = session && this.users.find(
+      (candidate) => candidate.id === session.userId && candidate.status === UserStatus.APPROVED,
+    );
 
     return user ? { id: user.id, username: user.username, isAdmin: user.isAdmin } : null;
   }

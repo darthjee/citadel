@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import bcrypt from 'bcryptjs';
@@ -10,15 +10,19 @@ import { RegisterDto } from './dto/register.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { compareOrDummy } from './dummy-digest.js';
 import { RefreshToken, RevokedReason } from './entities/refresh-token.entity.js';
-import { User } from './entities/user.entity.js';
+import { User, UserStatus } from './entities/user.entity.js';
 import { UserRegisteredEvent } from './events/user-registered.event.js';
 import { PasswordResetService } from './password-reset.service.js';
 import { TokenService, type AuthResult } from './token.service.js';
+import { UserApprovalConfig } from './user-approval.config.js';
 
 export type { AuthResult };
 
 // Specific error code attached to the `409` thrown when a field's value is taken.
 const TAKEN_CODES = { username: ErrorCodes.USERNAME_TAKEN, email: ErrorCodes.EMAIL_TAKEN } as const;
+
+// Message of the `403 USER_DENIED` answered to a denied user's login with the correct password.
+export const USER_DENIED_MESSAGE = 'This account has been denied access';
 
 /**
  * Auth module business logic: credential verification, registration,
@@ -35,6 +39,7 @@ export class AuthService {
   private readonly tokenService: TokenService;
   private readonly eventEmitter: EventEmitter2;
   private readonly passwordResetService: PasswordResetService;
+  private readonly userApprovalConfig: UserApprovalConfig;
 
   /**
    * @param {Repository<User>} userRepository - The Auth module's user repository.
@@ -46,6 +51,8 @@ export class AuthService {
    * @param {PasswordResetService} passwordResetService - The password
    *   recovery/reset flow's business logic, delegated to for `recover`/
    *   `resetPassword`.
+   * @param {UserApprovalConfig} userApprovalConfig - Decides the status a new
+   *   self-registration is stored with.
    */
   constructor(
     @InjectRepository(User) userRepository: Repository<User>,
@@ -53,17 +60,21 @@ export class AuthService {
       tokenService: TokenService,
       eventEmitter: EventEmitter2,
       passwordResetService: PasswordResetService,
+      userApprovalConfig: UserApprovalConfig,
   ) {
     this.userRepository = userRepository;
     this.refreshTokenRepository = refreshTokenRepository;
     this.tokenService = tokenService;
     this.eventEmitter = eventEmitter;
     this.passwordResetService = passwordResetService;
+    this.userApprovalConfig = userApprovalConfig;
   }
 
   /**
    * Registers a new user and immediately logs them in (issues tokens),
-   * per the issue's JWT flow ("issued on login/register/refresh").
+   * per the issue's JWT flow ("issued on login/register/refresh"). The user is
+   * stored with `UserApprovalConfig#registrationStatus()`; a `pending` user still
+   * gets a real session, which the gate blocks until approval.
    * @param {RegisterDto} dto - The registration payload.
    * @returns {Promise<AuthResult>} The created user plus access/refresh tokens.
    * @throws {ConflictException} When the username/email are already taken (`USERNAME_TAKEN`/`EMAIL_TAKEN`).
@@ -78,6 +89,7 @@ export class AuthService {
         email: dto.email,
         passwordDigest,
         isAdmin: false,
+        status: this.userApprovalConfig.registrationStatus(),
       }),
     );
 
@@ -90,13 +102,21 @@ export class AuthService {
   }
 
   /**
-   * Verifies a username/password pair and issues a fresh token pair.
+   * Verifies a username/password pair and issues a fresh token pair. The
+   * status is checked only **after** the password, so a wrong password is the
+   * same `401` whatever the status; a pending user gets a normal session (which
+   * the gate blocks until approval).
    * @param {LoginDto} dto - The login credentials.
    * @returns {Promise<AuthResult>} The authenticated user plus access/refresh tokens.
    * @throws {UnauthorizedException} When the username is unknown or the password is wrong.
+   * @throws {ForbiddenException} `USER_DENIED` when the password is correct but the user is denied (no session).
    */
   async login(dto: LoginDto): Promise<AuthResult> {
     const user = await this.#validateCredentials(dto.username, dto.password);
+
+    if (user.status === UserStatus.DENIED) {
+      throw new ForbiddenException({ code: ErrorCodes.USER_DENIED, message: USER_DENIED_MESSAGE });
+    }
 
     return this.tokenService.issueTokens(user);
   }
@@ -118,11 +138,13 @@ export class AuthService {
    * (see `TokenService#rotateTokens`). Check order: unknown → `401`; expired →
    * `401`; revoked `rotated` → replay detection (a compromise signal: every
    * active token of the user is revoked with `replay_detected`), then `401`;
-   * revoked for any other reason → `401`.
+   * revoked for any other reason → `401`. Then a denied user's token is
+   * revoked with `admin_denied` (only that row, no replay detection) → `401`;
+   * a pending user rotates normally.
    * @param {string} refreshToken - The refresh token presented by the client.
    * @returns {Promise<AuthResult>} The user plus the newly issued token pair.
    * @throws {UnauthorizedException} When the token is unknown, expired,
-   *   already revoked, or lost a concurrent rotation.
+   *   already revoked, belongs to a denied user, or lost a concurrent rotation.
    */
   async refresh(refreshToken: string): Promise<AuthResult> {
     const tokenRow = await this.#findRefreshableToken(refreshToken);
@@ -130,6 +152,11 @@ export class AuthService {
 
     if (!user) {
       throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (user.status === UserStatus.DENIED) {
+      await this.tokenService.revokeToken(tokenRow.id, RevokedReason.ADMIN_DENIED);
+      throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
     return this.tokenService.rotateTokens(user, tokenRow);
@@ -171,32 +198,6 @@ export class AuthService {
     const userId = await this.passwordResetService.resetPassword(dto);
 
     await this.#revokeTokenFamily(userId, RevokedReason.PASSWORD_RESET);
-  }
-
-  /**
-   * Reports whether a refresh token currently identifies an active
-   * session, without mutating anything. Deliberately distinct from
-   * `#findRefreshableToken` (used by `refresh()`), which revokes the
-   * user's active tokens and throws when it finds a rotated token — the
-   * correct replay-detection behavior for a token-consuming flow, but unsafe to reuse here: a passive status check
-   * must never revoke or rotate anything, or a second tab's routine
-   * mount-time confirmation could log every tab out after the first tab's
-   * legitimate refresh.
-   * @param {string} refreshToken - The refresh token presented by the client.
-   * @returns {Promise<{ loggedIn: boolean; isAdmin: boolean }>} `{ loggedIn:
-   *   true, isAdmin }` (resolved from the token's user) when active; `{
-   *   loggedIn: false, isAdmin: false }` otherwise, with no extra query.
-   */
-  async status(refreshToken: string): Promise<{ loggedIn: boolean; isAdmin: boolean }> {
-    const tokenRow = await this.#findActiveTokenRow(refreshToken);
-
-    if (!tokenRow) {
-      return { loggedIn: false, isAdmin: false };
-    }
-
-    const user = await this.userRepository.findOneBy({ id: tokenRow.userId });
-
-    return { loggedIn: true, isAdmin: user?.isAdmin ?? false };
   }
 
   /**
@@ -270,14 +271,6 @@ export class AuthService {
     }
 
     return tokenRow;
-  }
-
-  async #findActiveTokenRow(refreshToken: string): Promise<RefreshToken | null> {
-    const tokenHash = this.tokenService.hashToken(refreshToken);
-    const tokenRow = await this.refreshTokenRepository.findOneBy({ tokenHash });
-    const isActive = !!tokenRow && !tokenRow.revokedAt && tokenRow.expiresAt > new Date();
-
-    return isActive ? tokenRow : null;
   }
 
   async #revokeTokenFamily(userId: number, reason: RevokedReason): Promise<void> {

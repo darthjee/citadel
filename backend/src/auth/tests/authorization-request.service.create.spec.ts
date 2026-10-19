@@ -3,7 +3,7 @@ import {
   sha256,
   useAuthorizationRequestServiceContext,
 } from './authorization-request.service.test-support.js';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 
 describe('AuthorizationRequestService', () => {
   const ctx = useAuthorizationRequestServiceContext();
@@ -47,6 +47,33 @@ describe('AuthorizationRequestService', () => {
           expect.objectContaining({ uuid: result.uuid, username: 'darthjee', userId: 1 }),
         );
       });
+    });
+
+    describe('for every requester status', () => {
+      async function createFor(status: UserStatus): Promise<{ result: object; saved: unknown; emitted: unknown }> {
+        ctx.userRepository.findOneBy.mockResolvedValue({ ...user, status });
+        ctx.authorizationRequestRepository.save.mockClear();
+        ctx.eventEmitter.emit.mockClear();
+
+        const result = await ctx.service.create('darthjee', '203.0.113.1', 'curl/8.0');
+
+        return {
+          result,
+          saved: ctx.authorizationRequestRepository.save.mock.calls[0]?.[0],
+          emitted: ctx.eventEmitter.emit.mock.calls[0]?.[0],
+        };
+      }
+
+      it.each([UserStatus.PENDING, UserStatus.DENIED, UserStatus.APPROVED])(
+        'answers %s identically, saving the request and emitting the event',
+        async (status) => {
+          const { result, saved, emitted } = await createFor(status);
+
+          expect(Object.keys(result).sort()).toEqual(['expiresAt', 'pollToken', 'uuid']);
+          expect(saved).toEqual(expect.objectContaining({ username: 'darthjee', userId: 1, status: 'open' }));
+          expect(emitted).toBe('authorization-request.created');
+        },
+      );
     });
 
     describe('when the username does not match any account', () => {

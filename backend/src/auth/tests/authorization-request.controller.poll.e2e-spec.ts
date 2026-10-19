@@ -3,6 +3,7 @@ import { createAuthorizationRequest, useTestApp } from './authorization-request.
 import { expectErrorBody } from './support/error-body.js';
 import { ErrorCodes } from '../../core/error-codes.js';
 import { hashToken } from '../../core/token-hash.js';
+import { UserStatus } from '../entities/user.entity.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -132,6 +133,61 @@ describe('AuthorizationRequestController (e2e)', () => {
 
       expect(statuses).toEqual(['approved', 'logged']);
     });
+  });
+
+  describe('requester status', () => {
+    function poll(uuid: string, pollToken: string): request.Test {
+      return request(ctx.app.getHttpServer()).post(`/auth/authorization-requests/${uuid}/poll.json`).send({ pollToken });
+    }
+
+    it.each([UserStatus.PENDING, UserStatus.DENIED])(
+      'answers the winning poll of a %s requester with { status: "denied" }, no session',
+      async (status) => {
+        const { uuid, pollToken } = await createAuthorizationRequest(ctx.app);
+        approve(uuid);
+        ctx.userRepo.rows[0].status = status;
+        const tokenRows = ctx.refreshTokenRepo.rows.length;
+
+        const response = await poll(uuid, pollToken).expect(201);
+
+        expect(response.body).toEqual({ status: 'denied' });
+        expect(response.headers['set-cookie']).toBeUndefined();
+        expect(ctx.refreshTokenRepo.rows).toHaveLength(tokenRows);
+        expect(ctx.authorizationRequestRepo.rows.find((row) => row.uuid === uuid)?.status).toBe('denied');
+        expect((await poll(uuid, pollToken).expect(201)).body).toEqual({ status: 'denied' });
+      },
+    );
+
+    it('lets only one of two simultaneous polls of a pending requester resolve the request, both without a session', async () => {
+      const { uuid, pollToken } = await createAuthorizationRequest(ctx.app);
+      approve(uuid);
+      ctx.userRepo.rows[0].status = UserStatus.PENDING;
+      const tokenRows = ctx.refreshTokenRepo.rows.length;
+
+      const [first, second] = await Promise.all([poll(uuid, pollToken), poll(uuid, pollToken)]);
+
+      expect([first.body.status, second.body.status]).not.toContain('approved');
+      expect([first.headers['set-cookie'], second.headers['set-cookie']]).toEqual([undefined, undefined]);
+      expect(ctx.refreshTokenRepo.rows).toHaveLength(tokenRows);
+      expect(ctx.authorizationRequestRepo.rows.find((row) => row.uuid === uuid)?.status).toBe('denied');
+    });
+
+    it.each([UserStatus.PENDING, UserStatus.DENIED, UserStatus.APPROVED])(
+      'answers create for a %s username identically, saving the request',
+      async (status) => {
+        ctx.userRepo.rows[0].status = status;
+
+        const response = await request(ctx.app.getHttpServer())
+          .post('/auth/authorization-requests.json')
+          .send({ username: 'darthjee' })
+          .expect(201);
+
+        expect(Object.keys(response.body).sort()).toEqual(['expiresAt', 'pollToken', 'uuid']);
+        expect(ctx.authorizationRequestRepo.rows.find((row) => row.uuid === response.body.uuid)?.userId).toBe(
+          ctx.userRepo.rows[0].id,
+        );
+      },
+    );
   });
 
   describe('X-Skip-Cache header', () => {

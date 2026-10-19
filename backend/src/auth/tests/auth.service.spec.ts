@@ -1,22 +1,41 @@
-import { BadRequestException, ConflictException, HttpException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  HttpException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import bcrypt from 'bcryptjs';
 import { IsNull } from 'typeorm';
 import { ErrorCodes } from '../../core/error-codes.js';
-import { AuthService } from '../auth.service.js';
+import { AuthService, USER_DENIED_MESSAGE } from '../auth.service.js';
 import { RefreshToken, RevokedReason } from '../entities/refresh-token.entity.js';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 import { PasswordResetService } from '../password-reset.service.js';
 import { TokenService } from '../token.service.js';
+import { UserApprovalConfig } from '../user-approval.config.js';
 import { repoMock, RepoMock } from './repo-mock.test-support.js';
 
 describe('AuthService', () => {
   let userRepository: RepoMock<User>;
   let refreshTokenRepository: RepoMock<RefreshToken>;
-  let tokenService: { issueTokens: jest.Mock; rotateTokens: jest.Mock; hashToken: jest.Mock };
+  let tokenService: { issueTokens: jest.Mock; rotateTokens: jest.Mock; hashToken: jest.Mock; revokeToken: jest.Mock };
   let eventEmitter: { emit: jest.Mock };
   let passwordResetService: { recover: jest.Mock; resetPassword: jest.Mock };
+  let userApprovalConfig: UserApprovalConfig;
   let service: AuthService;
+
+  function buildService(): AuthService {
+    return new AuthService(
+      userRepository as never,
+      refreshTokenRepository as never,
+      tokenService as unknown as TokenService,
+      eventEmitter as unknown as EventEmitter2,
+      passwordResetService as unknown as PasswordResetService,
+      userApprovalConfig,
+    );
+  }
 
   const activeToken = { id: 10, userId: 1, revokedAt: null, expiresAt: new Date(Date.now() + 60_000) };
 
@@ -46,17 +65,13 @@ describe('AuthService', () => {
         refreshToken: 'new-refresh-token',
       })),
       hashToken: jest.fn((token: string) => `hashed:${token}`),
+      revokeToken: jest.fn(async () => undefined),
     };
     eventEmitter = { emit: jest.fn() };
     passwordResetService = { recover: jest.fn(), resetPassword: jest.fn() };
+    userApprovalConfig = new UserApprovalConfig(false);
 
-    service = new AuthService(
-      userRepository as never,
-      refreshTokenRepository as never,
-      tokenService as unknown as TokenService,
-      eventEmitter as unknown as EventEmitter2,
-      passwordResetService as unknown as PasswordResetService,
-    );
+    service = buildService();
   });
 
   describe('login', () => {
@@ -69,6 +84,7 @@ describe('AuthService', () => {
         email: 'darthjee@example.com',
         passwordDigest: await bcrypt.hash('correct-password', 4),
         isAdmin: false,
+        status: UserStatus.APPROVED,
       } as User;
     });
 
@@ -128,6 +144,54 @@ describe('AuthService', () => {
         ).rejects.toThrow(new UnauthorizedException('Invalid username or password'));
       });
     });
+
+    describe('when the user is denied', () => {
+      beforeEach(() => {
+        user.status = UserStatus.DENIED;
+        userRepository.findOneBy.mockResolvedValue(user);
+      });
+
+      it('answers a wrong password with the same 401 as an unknown user', async () => {
+        await expect(
+          service.login({ username: 'darthjee', password: 'wrong-password' }),
+        ).rejects.toThrow(new UnauthorizedException('Invalid username or password'));
+      });
+
+      it('answers the correct password with 403 USER_DENIED', async () => {
+        const error = await service
+          .login({ username: 'darthjee', password: 'correct-password' })
+          .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ForbiddenException);
+        expect((error as HttpException).getResponse()).toEqual({
+          code: ErrorCodes.USER_DENIED,
+          message: 'This account has been denied access',
+        });
+        expect(USER_DENIED_MESSAGE).toBe('This account has been denied access');
+      });
+
+      it('does not mint a session', async () => {
+        await expect(
+          service.login({ username: 'darthjee', password: 'correct-password' }),
+        ).rejects.toThrow(ForbiddenException);
+
+        expect(tokenService.issueTokens).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('when the user is pending', () => {
+      beforeEach(() => {
+        user.status = UserStatus.PENDING;
+        userRepository.findOneBy.mockResolvedValue(user);
+      });
+
+      it('mints a normal session', async () => {
+        const result = await service.login({ username: 'darthjee', password: 'correct-password' });
+
+        expect(tokenService.issueTokens).toHaveBeenCalledWith(user);
+        expect(result.accessToken).toBe('signed-access-token');
+      });
+    });
   });
 
   // Detailed recover() behavior (token creation, event shape,
@@ -185,6 +249,21 @@ describe('AuthService', () => {
 
         expect(passwordDigest).not.toBe('my-password');
         await expect(bcrypt.compare('my-password', passwordDigest)).resolves.toBe(true);
+      });
+
+      it('stores the user as approved when approval is not required', async () => {
+        await service.register({ username: 'darthjee', email: 'darthjee@example.com', password: 'my-password' });
+
+        expect(userRepository.create.mock.calls[0][0].status).toBe(UserStatus.APPROVED);
+      });
+
+      it('stores the user as pending when approval is required', async () => {
+        userApprovalConfig = new UserApprovalConfig(true);
+        service = buildService();
+
+        await service.register({ username: 'darthjee', email: 'darthjee@example.com', password: 'my-password' });
+
+        expect(userRepository.create.mock.calls[0][0].status).toBe(UserStatus.PENDING);
       });
 
       it('emits a user.registered event with the created user', async () => {
@@ -277,7 +356,45 @@ describe('AuthService', () => {
       username: 'darthjee',
       email: 'darthjee@example.com',
       isAdmin: false,
+      status: UserStatus.APPROVED,
     } as User;
+
+    describe('when the active token belongs to a pending user', () => {
+      const pending = { ...user, status: UserStatus.PENDING } as User;
+
+      beforeEach(() => {
+        refreshTokenRepository.findOneBy.mockResolvedValue(activeToken);
+        userRepository.findOneBy.mockResolvedValue(pending);
+      });
+
+      it('rotates normally', async () => {
+        await service.refresh('a-refresh-token');
+
+        expect(tokenService.rotateTokens).toHaveBeenCalledWith(pending, activeToken);
+        expect(tokenService.revokeToken).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('when the active token belongs to a denied user', () => {
+      beforeEach(() => {
+        refreshTokenRepository.findOneBy.mockResolvedValue(activeToken);
+        userRepository.findOneBy.mockResolvedValue({ ...user, status: UserStatus.DENIED });
+      });
+
+      it('rejects with a plain 401', async () => {
+        await expect(service.refresh('a-refresh-token')).rejects.toThrow(
+          new UnauthorizedException('Invalid or expired refresh token'),
+        );
+      });
+
+      it('revokes only the presented token, with admin_denied, without replay detection', async () => {
+        await expect(service.refresh('a-refresh-token')).rejects.toThrow(UnauthorizedException);
+
+        expect(tokenService.revokeToken).toHaveBeenCalledWith(activeToken.id, RevokedReason.ADMIN_DENIED);
+        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+        expect(tokenService.rotateTokens).not.toHaveBeenCalled();
+      });
+    });
 
     describe('when the refresh token is active', () => {
       beforeEach(() => {
@@ -358,7 +475,12 @@ describe('AuthService', () => {
       });
     });
 
-    describe.each([RevokedReason.LOGOUT, RevokedReason.PASSWORD_RESET, RevokedReason.REPLAY_DETECTED])(
+    describe.each([
+      RevokedReason.LOGOUT,
+      RevokedReason.PASSWORD_RESET,
+      RevokedReason.REPLAY_DETECTED,
+      RevokedReason.ADMIN_DENIED,
+    ])(
       'when the refresh token was revoked with %s',
       (reason) => {
         beforeEach(() => {
@@ -477,86 +599,6 @@ describe('AuthService', () => {
         await expect(
           service.resetPassword({ token: 'bad-token', password: 'new-password' }),
         ).rejects.toThrow(BadRequestException);
-
-        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
-      });
-    });
-  });
-
-  describe('status', () => {
-    const user = { id: 1, username: 'darthjee', email: 'darthjee@example.com', isAdmin: false } as User;
-
-    describe('when the refresh token is active', () => {
-      beforeEach(() => {
-        refreshTokenRepository.findOneBy.mockResolvedValue(activeToken);
-        userRepository.findOneBy.mockResolvedValue(user);
-      });
-
-      it('resolves with loggedIn: true and the user isAdmin', async () => {
-        await expect(service.status('a-refresh-token')).resolves.toEqual({ loggedIn: true, isAdmin: false });
-      });
-
-      it('looks the user up by the token row userId', async () => {
-        await service.status('a-refresh-token');
-
-        expect(userRepository.findOneBy).toHaveBeenCalledWith({ id: 1 });
-      });
-
-      it('does not mutate the token row', async () => {
-        await service.status('a-refresh-token');
-
-        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('when the active token belongs to an admin', () => {
-      beforeEach(() => {
-        refreshTokenRepository.findOneBy.mockResolvedValue(activeToken);
-        userRepository.findOneBy.mockResolvedValue({ ...user, isAdmin: true });
-      });
-
-      it('resolves with isAdmin: true', async () => {
-        await expect(service.status('a-refresh-token')).resolves.toEqual({ loggedIn: true, isAdmin: true });
-      });
-    });
-
-    describe('when the refresh token is unknown', () => {
-      beforeEach(() => {
-        refreshTokenRepository.findOneBy.mockResolvedValue(null);
-      });
-
-      it('resolves with loggedIn: false and isAdmin: false, without throwing', async () => {
-        await expect(service.status('unknown-token')).resolves.toEqual({ loggedIn: false, isAdmin: false });
-      });
-
-      it('does not look up the user', async () => {
-        await service.status('unknown-token');
-
-        expect(userRepository.findOneBy).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('when the refresh token has expired', () => {
-      beforeEach(() => {
-        stubExpiredRefreshToken();
-      });
-
-      it('resolves with loggedIn: false and isAdmin: false', async () => {
-        await expect(service.status('expired-token')).resolves.toEqual({ loggedIn: false, isAdmin: false });
-      });
-    });
-
-    describe('when the refresh token was already rotated', () => {
-      beforeEach(() => {
-        stubRevokedRefreshToken();
-      });
-
-      it('resolves with loggedIn: false and isAdmin: false, without throwing', async () => {
-        await expect(service.status('revoked-token')).resolves.toEqual({ loggedIn: false, isAdmin: false });
-      });
-
-      it('does not revoke the rest of the token family', async () => {
-        await service.status('revoked-token');
 
         expect(refreshTokenRepository.update).not.toHaveBeenCalled();
       });
