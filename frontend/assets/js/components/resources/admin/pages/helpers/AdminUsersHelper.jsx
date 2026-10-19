@@ -1,10 +1,14 @@
 import Table from 'react-bootstrap/cjs/Table.js';
+import ApproveUserButton from '../users/ApproveUserButton.jsx';
+import DenyUserButton from '../users/DenyUserButton.jsx';
 
 /**
- * Render the search form.
+ * Render the search form: the search term input plus the approval-status filter (`''` meaning
+ * every status).
  *
- * @param {{query: string}} state - Page state.
- * @param {{onSubmit: Function, onQueryChange: Function}} handlers - Event handlers.
+ * @param {{query: string, status: string}} state - Page state.
+ * @param {{onSubmit: Function, onQueryChange: Function, onStatusChange: Function}} handlers -
+ *   Event handlers.
  * @returns {React.ReactElement} The rendered search form.
  */
 function renderSearchForm(state, handlers) {
@@ -18,6 +22,17 @@ function renderSearchForm(state, handlers) {
           value={state.query}
           onChange={handlers.onQueryChange}
         />
+        <select
+          className="form-select"
+          aria-label="Status"
+          value={state.status}
+          onChange={handlers.onStatusChange}
+        >
+          <option value="">All</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="denied">Denied</option>
+        </select>
         <button type="submit" className="btn btn-primary">Search</button>
       </div>
     </form>
@@ -42,8 +57,10 @@ function renderSearchError(state) {
  * Render the matching-accounts table, or a "no results" message when the current search
  * (including the initial, not-yet-searched state) has no results.
  *
- * @param {{users: Array<object>, rowResults: object}} state - Page state.
- * @param {{onGenerateLink: Function, onSendEmail: Function}} handlers - Event handlers.
+ * @param {{users: Array<object>, rowResults: object, currentUserId: (number|null)}} state -
+ *   Page state.
+ * @param {{onGenerateLink: Function, onSendEmail: Function, onApprove: Function,
+ *   onDeny: Function}} handlers - Event handlers.
  * @returns {React.ReactElement} The rendered table or "no results" message.
  */
 function renderUsersTable(state, handlers) {
@@ -59,12 +76,13 @@ function renderUsersTable(state, handlers) {
           <th>Username</th>
           <th>Email</th>
           <th>Admin</th>
+          <th>Status</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
         {state.users.map(
-          (user) => renderRow(user, state.rowResults, handlers),
+          (user) => renderRow(user, state, handlers),
         )}
       </tbody>
     </Table>
@@ -72,22 +90,25 @@ function renderUsersTable(state, handlers) {
 }
 
 /**
- * Render a single user row, with an "Edit" link plus its "Generate link"/"Send email"
- * actions and whatever per-row result the controller is currently holding for that user.
+ * Render a single user row, with an "Edit" link, its "Generate link"/"Send email" actions,
+ * the status-dependent Approve/Deny buttons, and whatever per-row result the controller is
+ * currently holding for that user.
  *
- * @param {{id: number, username: string, email: string, isAdmin: boolean}} user - The row's
- *   user account.
- * @param {object} rowResults - The per-user last-action result map, keyed by user id.
- * @param {{onGenerateLink: Function, onSendEmail: Function}} handlers - Event handlers.
+ * @param {{id: number, username: string, email: string, isAdmin: boolean, status: string}} user -
+ *   The row's user account.
+ * @param {{rowResults: object, currentUserId: (number|null)}} state - Page state.
+ * @param {{onGenerateLink: Function, onSendEmail: Function, onApprove: Function,
+ *   onDeny: Function}} handlers - Event handlers.
  * @returns {React.ReactElement} The rendered row.
  */
-function renderRow(user, rowResults, handlers) {
+function renderRow(user, state, handlers) {
   return (
     <tr key={user.id}>
       <td>{user.id}</td>
       <td>{user.username}</td>
       <td>{user.email}</td>
       <td>{user.isAdmin ? 'Yes' : 'No'}</td>
+      <td>{user.status}</td>
       <td>
         <a
           href={`#/admin/users/${user.id}/edit`}
@@ -109,10 +130,16 @@ function renderRow(user, rowResults, handlers) {
         >
           Send email
         </button>
+        <ApproveUserButton user={user} onApprove={handlers.onApprove(user.id)} />
+        <DenyUserButton
+          user={user}
+          currentUserId={state.currentUserId}
+          onDeny={handlers.onDeny(user.id)}
+        />
         {/* eslint-disable-next-line security/detect-object-injection -- user.id is a numeric
             id from the search response, used only to key into a map this page itself built;
             never an attacker-controlled property name. */}
-        {renderRowResult(rowResults[user.id])}
+        {renderRowResult(state.rowResults[user.id])}
       </td>
     </tr>
   );
@@ -154,13 +181,14 @@ function renderRowResult(result) {
  */
 const AdminUsersHelper = {
   /**
-   * Render the Admin Users page: a search form and, once searched, a table of matching
-   * accounts.
+   * Render the Admin Users page: a search form with a status filter and, once searched, a
+   * table of matching accounts.
    *
-   * @param {{query: string, users: Array<object>, rowResults: object,
-   *   searchError: (string|null)}} state - Page state.
-   * @param {{onSubmit: Function, onQueryChange: Function, onGenerateLink: Function,
-   *   onSendEmail: Function}} handlers - Event handlers.
+   * @param {{query: string, status: string, users: Array<object>, rowResults: object,
+   *   searchError: (string|null), currentUserId: (number|null)}} state - Page state.
+   * @param {{onSubmit: Function, onQueryChange: Function, onStatusChange: Function,
+   *   onGenerateLink: Function, onSendEmail: Function, onApprove: Function,
+   *   onDeny: Function}} handlers - Event handlers.
    * @returns {React.ReactElement} The rendered Admin Users page.
    */
   render(state, handlers) {
