@@ -19,6 +19,7 @@ import { LoggerService } from '../logger.service.js';
 import { LoggingModule } from '../logging.module.js';
 import { Public } from '../public.decorator.js';
 import { RequestContextMiddleware } from '../request-context.middleware.js';
+import { SESSION_LOOKUP } from '../session-lookup.js';
 import { clearConsoleSpies, createConsoleSpies, restoreConsoleSpies } from './console-spies.test-support.js';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -62,6 +63,9 @@ class ProbeController {
   ],
   controllers: [ProbeController],
   providers: [
+    // No `AuthModule` here: `JwtGuard`'s session lookup is stubbed (no
+    // session is ever active; the protected-route cases use no/invalid tokens).
+    { provide: SESSION_LOOKUP, useValue: { findActiveSessionUser: async () => null } },
     { provide: APP_GUARD, useClass: JwtGuard },
     { provide: APP_GUARD, useClass: AdminGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
