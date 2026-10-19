@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import { IsNull } from 'typeorm';
 import { ErrorCodes } from '../../core/error-codes.js';
 import { AuthService } from '../auth.service.js';
-import { RefreshToken } from '../entities/refresh-token.entity.js';
+import { RefreshToken, RevokedReason } from '../entities/refresh-token.entity.js';
 import { User } from '../entities/user.entity.js';
 import { PasswordResetService } from '../password-reset.service.js';
 import { TokenService } from '../token.service.js';
@@ -13,7 +13,7 @@ import { repoMock, RepoMock } from './repo-mock.test-support.js';
 describe('AuthService', () => {
   let userRepository: RepoMock<User>;
   let refreshTokenRepository: RepoMock<RefreshToken>;
-  let tokenService: { issueTokens: jest.Mock; hashToken: jest.Mock };
+  let tokenService: { issueTokens: jest.Mock; rotateTokens: jest.Mock; hashToken: jest.Mock };
   let eventEmitter: { emit: jest.Mock };
   let passwordResetService: { recover: jest.Mock; resetPassword: jest.Mock };
   let service: AuthService;
@@ -27,8 +27,8 @@ describe('AuthService', () => {
     });
   }
 
-  function stubRevokedRefreshToken(): void {
-    refreshTokenRepository.findOneBy.mockResolvedValue({ ...activeToken, revokedAt: new Date() });
+  function stubRevokedRefreshToken(revokedReason: RevokedReason = RevokedReason.ROTATED): void {
+    refreshTokenRepository.findOneBy.mockResolvedValue({ ...activeToken, revokedAt: new Date(), revokedReason });
   }
 
   beforeEach(() => {
@@ -36,6 +36,11 @@ describe('AuthService', () => {
     refreshTokenRepository = repoMock<RefreshToken>();
     tokenService = {
       issueTokens: jest.fn(async (user: User) => ({
+        user,
+        accessToken: 'signed-access-token',
+        refreshToken: 'new-refresh-token',
+      })),
+      rotateTokens: jest.fn(async (user: User) => ({
         user,
         accessToken: 'signed-access-token',
         refreshToken: 'new-refresh-token',
@@ -280,19 +285,42 @@ describe('AuthService', () => {
         userRepository.findOneBy.mockResolvedValue(user);
       });
 
-      it('revokes the presented token before issuing a new pair', async () => {
+      it('resolves with the rotated token pair', async () => {
         const result = await service.refresh('a-refresh-token');
 
-        expect(refreshTokenRepository.update).toHaveBeenCalledWith(10, { revokedAt: expect.any(Date) });
         expect(result.user).toBe(user);
         expect(result.accessToken).toBe('signed-access-token');
         expect(result.refreshToken).not.toBe('a-refresh-token');
       });
 
-      it('delegates session minting to TokenService with the reloaded user', async () => {
+      it('delegates the atomic rotation to TokenService with the reloaded user and the presented row', async () => {
         await service.refresh('a-refresh-token');
 
-        expect(tokenService.issueTokens).toHaveBeenCalledWith(user);
+        expect(tokenService.rotateTokens).toHaveBeenCalledWith(user, activeToken);
+        expect(tokenService.issueTokens).not.toHaveBeenCalled();
+        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+      });
+
+      it('propagates a lost rotation race as 401', async () => {
+        tokenService.rotateTokens.mockRejectedValue(new UnauthorizedException('Invalid or expired refresh token'));
+
+        await expect(service.refresh('a-refresh-token')).rejects.toThrow(
+          new UnauthorizedException('Invalid or expired refresh token'),
+        );
+      });
+    });
+
+    describe('when the token user no longer exists', () => {
+      beforeEach(() => {
+        refreshTokenRepository.findOneBy.mockResolvedValue(activeToken);
+        userRepository.findOneBy.mockResolvedValue(null);
+      });
+
+      it('rejects with UnauthorizedException without rotating', async () => {
+        await expect(service.refresh('a-refresh-token')).rejects.toThrow(
+          new UnauthorizedException('Invalid refresh token'),
+        );
+        expect(tokenService.rotateTokens).not.toHaveBeenCalled();
       });
     });
 
@@ -308,7 +336,7 @@ describe('AuthService', () => {
       });
     });
 
-    describe('when the refresh token was already revoked', () => {
+    describe('when the refresh token was already rotated', () => {
       beforeEach(() => {
         stubRevokedRefreshToken();
       });
@@ -319,13 +347,49 @@ describe('AuthService', () => {
         );
       });
 
-      it('treats the replay as a compromise signal, revoking the rest of the token family', async () => {
+      it('treats the replay as a compromise signal, revoking every active token with replay_detected', async () => {
         await expect(service.refresh('reused-token')).rejects.toThrow(UnauthorizedException);
 
         expect(refreshTokenRepository.update).toHaveBeenCalledWith(
           { userId: activeToken.userId, revokedAt: IsNull() },
-          { revokedAt: expect.any(Date) },
+          { revokedAt: expect.any(Date), revokedReason: RevokedReason.REPLAY_DETECTED },
         );
+        expect(tokenService.rotateTokens).not.toHaveBeenCalled();
+      });
+    });
+
+    describe.each([RevokedReason.LOGOUT, RevokedReason.PASSWORD_RESET, RevokedReason.REPLAY_DETECTED])(
+      'when the refresh token was revoked with %s',
+      (reason) => {
+        beforeEach(() => {
+          stubRevokedRefreshToken(reason);
+        });
+
+        it('rejects with a plain 401, without replay detection', async () => {
+          await expect(service.refresh('revoked-token')).rejects.toThrow(
+            new UnauthorizedException('Invalid or expired refresh token'),
+          );
+          expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+          expect(tokenService.rotateTokens).not.toHaveBeenCalled();
+        });
+      },
+    );
+
+    describe('when an expired refresh token was rotated', () => {
+      beforeEach(() => {
+        refreshTokenRepository.findOneBy.mockResolvedValue({
+          ...activeToken,
+          expiresAt: new Date(Date.now() - 1000),
+          revokedAt: new Date(),
+          revokedReason: RevokedReason.ROTATED,
+        });
+      });
+
+      it('rejects with 401 before the revocation check, without replay detection', async () => {
+        await expect(service.refresh('old-rotated-token')).rejects.toThrow(
+          new UnauthorizedException('Invalid or expired refresh token'),
+        );
+        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
       });
     });
 
@@ -349,14 +413,30 @@ describe('AuthService', () => {
   });
 
   describe('logout', () => {
-    it('revokes the matching refresh token by its hash', async () => {
+    const sessionUuid = '11111111-2222-4333-8444-555555555555';
+
+    it.each([
+      ['an active', { revokedAt: null, revokedReason: null }],
+      ['a rotated (stale)', { revokedAt: new Date(), revokedReason: RevokedReason.ROTATED }],
+      ['an expired', { expiresAt: new Date(Date.now() - 1000) }],
+    ])('revokes every active row of %s token\'s session with logout', async (_label, state) => {
+      refreshTokenRepository.findOneBy.mockResolvedValue({ ...activeToken, sessionUuid, ...state });
+
       await service.logout('a-refresh-token');
 
-      expect(tokenService.hashToken).toHaveBeenCalledWith('a-refresh-token');
+      expect(refreshTokenRepository.findOneBy).toHaveBeenCalledWith({ tokenHash: 'hashed:a-refresh-token' });
       expect(refreshTokenRepository.update).toHaveBeenCalledWith(
-        { tokenHash: 'hashed:a-refresh-token' },
-        { revokedAt: expect.any(Date) },
+        { userId: activeToken.userId, sessionUuid, revokedAt: IsNull() },
+        { revokedAt: expect.any(Date), revokedReason: RevokedReason.LOGOUT },
       );
+    });
+
+    it('does nothing for an unknown token', async () => {
+      refreshTokenRepository.findOneBy.mockResolvedValue(null);
+
+      await expect(service.logout('unknown-token')).resolves.toBeUndefined();
+
+      expect(refreshTokenRepository.update).not.toHaveBeenCalled();
     });
   });
 
@@ -370,12 +450,12 @@ describe('AuthService', () => {
         passwordResetService.resetPassword.mockResolvedValue(1);
       });
 
-      it('revokes every other refresh token belonging to that user', async () => {
+      it('revokes only the active refresh tokens of that user, with password_reset', async () => {
         await service.resetPassword({ token: 'a-token', password: 'new-password' });
 
         expect(refreshTokenRepository.update).toHaveBeenCalledWith(
           { userId: 1, revokedAt: IsNull() },
-          { revokedAt: expect.any(Date) },
+          { revokedAt: expect.any(Date), revokedReason: RevokedReason.PASSWORD_RESET },
         );
       });
     });
@@ -466,7 +546,7 @@ describe('AuthService', () => {
       });
     });
 
-    describe('when the refresh token was already revoked', () => {
+    describe('when the refresh token was already rotated', () => {
       beforeEach(() => {
         stubRevokedRefreshToken();
       });

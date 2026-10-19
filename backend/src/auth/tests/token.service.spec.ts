@@ -1,27 +1,26 @@
 import { createHash } from 'node:crypto';
+import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { RefreshToken } from '../entities/refresh-token.entity.js';
-import { Session } from '../entities/session.entity.js';
+import { IsNull } from 'typeorm';
+import { RefreshToken, RevokedReason } from '../entities/refresh-token.entity.js';
 import { User } from '../entities/user.entity.js';
 import { TokenService } from '../token.service.js';
 import { repoMock, RepoMock } from './repo-mock.test-support.js';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe('TokenService', () => {
   let refreshTokenRepository: RepoMock<RefreshToken>;
-  let sessionRepository: RepoMock<Session>;
   let jwtService: { sign: jest.Mock };
   let service: TokenService;
 
   beforeEach(() => {
     refreshTokenRepository = repoMock<RefreshToken>();
-    sessionRepository = repoMock<Session>();
     jwtService = { sign: jest.fn().mockReturnValue('signed-access-token') };
 
     service = new TokenService(
       refreshTokenRepository as never,
-      sessionRepository as never,
       jwtService as unknown as JwtService,
     );
   });
@@ -81,12 +80,134 @@ describe('TokenService', () => {
       expect(expiresAt.getTime()).toBeLessThanOrEqual(after + SEVEN_DAYS_MS);
     });
 
-    it('writes an auth_sessions bookkeeping row for the user', async () => {
+    it('persists the row unrevoked, with no revoked reason', async () => {
       await service.issueTokens(user);
 
-      expect(sessionRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 7, lastSeenAt: expect.any(Date) }),
+      expect(refreshTokenRepository.save.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ revokedAt: null, revokedReason: null }),
       );
+    });
+
+    it('starts a new session without one: a UUID sessionUuid, startedAt about now', async () => {
+      const before = Date.now();
+
+      await service.issueTokens(user);
+
+      const { sessionUuid, startedAt } = refreshTokenRepository.save.mock.calls[0][0];
+      const after = Date.now();
+
+      expect(sessionUuid).toMatch(UUID_PATTERN);
+      expect(startedAt).toBeInstanceOf(Date);
+      expect(startedAt.getTime()).toBeGreaterThanOrEqual(before);
+      expect(startedAt.getTime()).toBeLessThanOrEqual(after);
+    });
+
+    it('starts two different sessions on two calls without a session', async () => {
+      await service.issueTokens(user);
+      await service.issueTokens(user);
+
+      const [first, second] = refreshTokenRepository.save.mock.calls.map(([row]) => row.sessionUuid);
+
+      expect(first).not.toBe(second);
+    });
+
+    it('copies sessionUuid and startedAt when given a session', async () => {
+      const session = { sessionUuid: '11111111-2222-4333-8444-555555555555', startedAt: new Date('2026-01-01T00:00:00Z') };
+
+      await service.issueTokens(user, session);
+
+      expect(refreshTokenRepository.save.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ sessionUuid: session.sessionUuid, startedAt: session.startedAt }),
+      );
+    });
+
+    it('saves the row through the given entity manager, not the injected repository', async () => {
+      const managerRepository = repoMock<RefreshToken>();
+      const manager = { getRepository: jest.fn().mockReturnValue(managerRepository) };
+
+      await service.issueTokens(user, undefined, manager as never);
+
+      expect(manager.getRepository).toHaveBeenCalledWith(RefreshToken);
+      expect(managerRepository.save).toHaveBeenCalledWith(expect.objectContaining({ userId: 7 }));
+      expect(refreshTokenRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('depends on no session repository', () => {
+      expect(TokenService.length).toBe(2);
+    });
+  });
+
+  describe('rotateTokens', () => {
+    const user = { id: 7, username: 'darthjee', isAdmin: false } as User;
+    const presented = {
+      id: 10,
+      userId: 7,
+      sessionUuid: '11111111-2222-4333-8444-555555555555',
+      startedAt: new Date('2026-01-01T00:00:00Z'),
+      revokedAt: null,
+    } as RefreshToken;
+    let managerRepository: RepoMock<RefreshToken>;
+    let transactionOutcome: Promise<unknown> | undefined;
+
+    beforeEach(() => {
+      managerRepository = repoMock<RefreshToken>();
+      managerRepository.update.mockResolvedValue({ affected: 1 });
+      const manager = { getRepository: jest.fn().mockReturnValue(managerRepository) };
+      transactionOutcome = undefined;
+
+      Object.assign(refreshTokenRepository, {
+        manager: {
+          transaction: jest.fn((callback: (m: unknown) => Promise<unknown>) => {
+            transactionOutcome = callback(manager);
+            return transactionOutcome;
+          }),
+        },
+      });
+    });
+
+    it('inserts the replacement in the presented row session, through the transaction manager', async () => {
+      const result = await service.rotateTokens(user, presented);
+
+      expect(result.user).toBe(user);
+      expect(managerRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 7,
+          sessionUuid: presented.sessionUuid,
+          startedAt: presented.startedAt,
+          revokedAt: null,
+          revokedReason: null,
+        }),
+      );
+      expect(refreshTokenRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('inserts first, then revokes the presented row only if still unrevoked, with rotated', async () => {
+      await service.rotateTokens(user, presented);
+
+      expect(managerRepository.update).toHaveBeenCalledWith(
+        { id: 10, revokedAt: IsNull() },
+        { revokedAt: expect.any(Date), revokedReason: RevokedReason.ROTATED },
+      );
+      expect(managerRepository.save.mock.invocationCallOrder[0]).toBeLessThan(
+        managerRepository.update.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('answers 401 and rejects the transaction callback (rolling back) when a concurrent rotation won', async () => {
+      managerRepository.update.mockResolvedValue({ affected: 0 });
+
+      await expect(service.rotateTokens(user, presented)).rejects.toThrow(
+        new UnauthorizedException('Invalid or expired refresh token'),
+      );
+      await expect(transactionOutcome).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('never revokes the presented row and propagates the error when the insert fails', async () => {
+      managerRepository.save.mockRejectedValue(new Error('insert failed'));
+
+      await expect(service.rotateTokens(user, presented)).rejects.toThrow('insert failed');
+      await expect(transactionOutcome).rejects.toThrow('insert failed');
+      expect(managerRepository.update).not.toHaveBeenCalled();
     });
   });
 
