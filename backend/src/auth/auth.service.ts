@@ -40,8 +40,8 @@ export class AuthService {
    * @param {Repository<User>} userRepository - The Auth module's user repository.
    * @param {Repository<RefreshToken>} refreshTokenRepository - The refresh-token repository.
    * @param {TokenService} tokenService - Mints login sessions (access-token
-   *   JWT, rotating refresh token, `auth_sessions` row) and hashes refresh
-   *   tokens for the read paths.
+   *   JWT, rotating refresh token carrying its session identity) and hashes
+   *   refresh tokens for the read paths.
    * @param {EventEmitter2} eventEmitter - Fires the `user.registered` event.
    * @param {PasswordResetService} passwordResetService - The password
    *   recovery/reset flow's business logic, delegated to for `recover`/

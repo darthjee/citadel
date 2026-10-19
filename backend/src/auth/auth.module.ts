@@ -14,7 +14,6 @@ import { AccountEditLockout } from './entities/account-edit-lockout.entity.js';
 import { AuthorizationRequest } from './entities/authorization-request.entity.js';
 import { PasswordResetToken } from './entities/password-reset-token.entity.js';
 import { RefreshToken } from './entities/refresh-token.entity.js';
-import { Session } from './entities/session.entity.js';
 import { User } from './entities/user.entity.js';
 import { PasswordRecoveryRequestedListener } from './events/password-recovery-requested.listener.js';
 import { PasswordResetService } from './password-reset.service.js';
@@ -33,7 +32,6 @@ import { UserUpdateService } from './user-update.service.js';
     TypeOrmModule.forFeature([
       User,
       RefreshToken,
-      Session,
       PasswordResetToken,
       AuthorizationRequest,
       AccountEditLockout,

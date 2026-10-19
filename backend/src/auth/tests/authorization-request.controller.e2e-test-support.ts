@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AuthorizationRequest } from '../entities/authorization-request.entity.js';
+import { RefreshToken } from '../entities/refresh-token.entity.js';
 import { User } from '../entities/user.entity.js';
 import { loginCookie } from './support/auth-requests.js';
 import { buildAuthTestApp } from './support/build-auth-test-app.js';
@@ -15,10 +16,11 @@ export async function buildTestApp(configOverrides: Record<string, string> = {})
   app: INestApplication;
   userRepo: ReturnType<typeof createInMemoryRepo<User>>;
   authorizationRequestRepo: ReturnType<typeof createInMemoryRepo<AuthorizationRequest>>;
+  refreshTokenRepo: ReturnType<typeof createInMemoryRepo<RefreshToken>>;
 }> {
-  const { app, userRepo, authorizationRequestRepo } = await buildAuthTestApp({ configOverrides });
+  const { app, userRepo, authorizationRequestRepo, refreshTokenRepo } = await buildAuthTestApp({ configOverrides });
 
-  return { app, userRepo, authorizationRequestRepo };
+  return { app, userRepo, authorizationRequestRepo, refreshTokenRepo };
 }
 
 type TestAppContext = Awaited<ReturnType<typeof buildTestApp>>;
@@ -46,6 +48,9 @@ export function useTestApp(): TestAppContext {
     },
     get authorizationRequestRepo() {
       return current.authorizationRequestRepo;
+    },
+    get refreshTokenRepo() {
+      return current.refreshTokenRepo;
     },
   };
 }

@@ -19,7 +19,6 @@ import { AccountEditLockout } from '../../entities/account-edit-lockout.entity.j
 import { AuthorizationRequest } from '../../entities/authorization-request.entity.js';
 import { PasswordResetToken } from '../../entities/password-reset-token.entity.js';
 import { RefreshToken } from '../../entities/refresh-token.entity.js';
-import { Session } from '../../entities/session.entity.js';
 import { User } from '../../entities/user.entity.js';
 
 export interface BuildAuthTestAppOptions {
@@ -33,7 +32,6 @@ export interface BuildAuthTestAppResult {
   app: INestApplication;
   userRepo: ReturnType<typeof createInMemoryRepo<User>>;
   refreshTokenRepo: ReturnType<typeof createInMemoryRepo<RefreshToken>>;
-  sessionRepo: ReturnType<typeof createInMemoryRepo<Session>>;
   passwordResetTokenRepo: ReturnType<typeof createInMemoryRepo<PasswordResetToken>>;
   authorizationRequestRepo: ReturnType<typeof createInMemoryRepo<AuthorizationRequest>>;
   accountEditLockoutRepo: ReturnType<typeof createInMemoryRepo<AccountEditLockout>>;
@@ -48,7 +46,7 @@ export interface BuildAuthTestAppResult {
 // routes still get `X-Skip-Cache`/`Cache-Control` set, as under the real `AppModule`),
 // and the `APP_FILTER`/`HttpExceptionFilter` provider (so error responses use
 // the standard error body, as under the real `AppModule`);
-// overrides the `User`, `RefreshToken`, `Session`, `PasswordResetToken`,
+// overrides the `User`, `RefreshToken`, `PasswordResetToken`,
 // `AuthorizationRequest`, and `AccountEditLockout` repository tokens with fresh
 // `createInMemoryRepo()` instances; and registers the `darthjee` test user via
 // `POST /auth/register.json`.
@@ -73,7 +71,6 @@ export async function buildAuthTestApp({
 }: BuildAuthTestAppOptions = {}): Promise<BuildAuthTestAppResult> {
   const userRepo = createInMemoryRepo<User>();
   const refreshTokenRepo = createInMemoryRepo<RefreshToken>();
-  const sessionRepo = createInMemoryRepo<Session>();
   const passwordResetTokenRepo = createInMemoryRepo<PasswordResetToken>();
   const authorizationRequestRepo = createInMemoryRepo<AuthorizationRequest>();
   const accountEditLockoutRepo = createInMemoryRepo<AccountEditLockout>();
@@ -99,8 +96,6 @@ export async function buildAuthTestApp({
     .useValue(userRepo)
     .overrideProvider(getRepositoryToken(RefreshToken))
     .useValue(refreshTokenRepo)
-    .overrideProvider(getRepositoryToken(Session))
-    .useValue(sessionRepo)
     .overrideProvider(getRepositoryToken(PasswordResetToken))
     .useValue(passwordResetTokenRepo)
     .overrideProvider(getRepositoryToken(AuthorizationRequest))
@@ -129,7 +124,6 @@ export async function buildAuthTestApp({
     app,
     userRepo,
     refreshTokenRepo,
-    sessionRepo,
     passwordResetTokenRepo,
     authorizationRequestRepo,
     accountEditLockoutRepo,

@@ -2,6 +2,9 @@ import request from 'supertest';
 import { createAuthorizationRequest, useTestApp } from './authorization-request.controller.e2e-test-support.js';
 import { expectErrorBody } from './support/error-body.js';
 import { ErrorCodes } from '../../core/error-codes.js';
+import { hashToken } from '../../core/token-hash.js';
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe('AuthorizationRequestController (e2e)', () => {
   const ctx = useTestApp();
@@ -46,6 +49,25 @@ describe('AuthorizationRequestController (e2e)', () => {
 
       expect(loggedResponse.body).toEqual({ status: 'logged' });
       expect(loggedResponse.headers['set-cookie']).toBeUndefined();
+    });
+  });
+
+  describe('sessions', () => {
+    it('starts a fresh session for the winning approved poll', async () => {
+      const { uuid, pollToken } = await createAuthorizationRequest(ctx.app);
+      approve(uuid);
+      const existingSessions = new Set(ctx.refreshTokenRepo.rows.map((row) => row.sessionUuid));
+
+      const response = await request(ctx.app.getHttpServer())
+        .post(`/auth/authorization-requests/${uuid}/poll.json`)
+        .send({ pollToken })
+        .expect(201);
+
+      const row = ctx.refreshTokenRepo.rows.find((candidate) => candidate.tokenHash === hashToken(response.body.refreshToken));
+
+      expect(row?.sessionUuid).toMatch(UUID_PATTERN);
+      expect(existingSessions.has(row!.sessionUuid)).toBe(false);
+      expect(row?.startedAt).toBeInstanceOf(Date);
     });
   });
 
