@@ -1,9 +1,11 @@
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import bcrypt from 'bcryptjs';
 import request from 'supertest';
 import { loginAs, useTestApp } from './auth.controller.e2e-test-support.js';
 import { expectErrorBody } from './support/error-body.js';
 import { ErrorCodes } from '../../core/error-codes.js';
 import { hashToken } from '../../core/token-hash.js';
+import { UserStatus } from '../entities/user.entity.js';
 
 describe('AuthController (e2e)', () => {
   const ctx = useTestApp();
@@ -178,6 +180,87 @@ describe('AuthController (e2e)', () => {
         .post('/auth/reset-password.json')
         .send({ token, password: 'brand-new-password' })
         .expect(200);
+    });
+  });
+
+  describe('by account status', () => {
+    function setStatus(status: UserStatus): void {
+      ctx.userRepo.rows[0].status = status;
+    }
+
+    function recover(email: string): request.Test {
+      return request(ctx.app.getHttpServer()).post('/auth/recover.json').send({ email }).expect(200);
+    }
+
+    async function recoveryToken(): Promise<string> {
+      const eventEmitter = ctx.app.get(EventEmitter2);
+      const tokenPromise = new Promise<string>((resolve) => {
+        eventEmitter.once('password-recovery.requested', (event: { token: string }) => resolve(event.token));
+      });
+
+      await recover('darthjee@example.com');
+
+      return tokenPromise;
+    }
+
+    function resetPassword(token: string): request.Test {
+      return request(ctx.app.getHttpServer())
+        .post('/auth/reset-password.json')
+        .send({ token, password: 'brand-new-password' });
+    }
+
+    it('answers recover.json identically for a denied, an unknown and an approved email', async () => {
+      const approved = await recover('darthjee@example.com');
+      setStatus(UserStatus.DENIED);
+      const denied = await recover('darthjee@example.com');
+      const unknown = await recover('nobody@example.com');
+
+      expect(denied.text).toBe(unknown.text);
+      expect(denied.text).toBe(approved.text);
+      expect(denied.body).toEqual({ sent: true });
+    });
+
+    it('creates no token and fires no event for a denied email', async () => {
+      setStatus(UserStatus.DENIED);
+      const listener = jest.fn();
+      ctx.app.get(EventEmitter2).on('password-recovery.requested', listener);
+
+      await recover('darthjee@example.com');
+
+      expect(ctx.passwordResetTokenRepo.rows).toHaveLength(0);
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it("rejects a denied user's valid token like an unknown one, before hashing, leaving it unused", async () => {
+      const token = await recoveryToken();
+      const digestBefore = ctx.userRepo.rows[0].passwordDigest;
+      setStatus(UserStatus.DENIED);
+      const hashSpy = jest.spyOn(bcrypt, 'hash');
+
+      try {
+        const denied = await resetPassword(token);
+        const unknown = await resetPassword('not-a-real-token');
+
+        expectErrorBody(denied, { status: 400, code: ErrorCodes.BAD_REQUEST, message: 'Invalid or expired token' });
+        expect(denied.body.error).toEqual(unknown.body.error);
+        expect(hashSpy).not.toHaveBeenCalled();
+      } finally {
+        hashSpy.mockRestore();
+      }
+
+      expect(ctx.userRepo.rows[0].passwordDigest).toBe(digestBefore);
+      expect(ctx.passwordResetTokenRepo.rows[0].usedAt).toBeNull();
+    });
+
+    it('lets a pending user reset the password, staying pending', async () => {
+      setStatus(UserStatus.PENDING);
+      const token = await recoveryToken();
+      const digestBefore = ctx.userRepo.rows[0].passwordDigest;
+
+      await resetPassword(token).expect(200, { reset: true });
+
+      expect(ctx.userRepo.rows[0].passwordDigest).not.toBe(digestBefore);
+      expect(ctx.userRepo.rows[0].status).toBe(UserStatus.PENDING);
     });
   });
 });

@@ -8,7 +8,7 @@ import { Repository } from 'typeorm';
 import { RecoverDto } from './dto/recover.dto.js';
 import { ResetPasswordDto } from './dto/reset-password.dto.js';
 import { PasswordResetToken } from './entities/password-reset-token.entity.js';
-import { User } from './entities/user.entity.js';
+import { User, UserStatus } from './entities/user.entity.js';
 import { PasswordRecoveryRequestedEvent } from './events/password-recovery-requested.event.js';
 import { LoggerService } from '../core/logger.service.js';
 import { hashToken } from '../core/token-hash.js';
@@ -62,7 +62,9 @@ export class PasswordResetService {
    * `password-recovery.requested` event is fired (consumed later by #39).
    * Never throws and never branches its return value on whether the email
    * matched — callers must respond identically either way, per the
-   * enumeration-safety contract (see `docs/agents/product.md`).
+   * enumeration-safety contract (see `docs/agents/product.md`). A **denied**
+   * user is treated exactly like an unknown email (same log line, no token,
+   * no event); approved and pending users recover normally.
    * @param {RecoverDto} dto - Carries the email to look up.
    * @returns {Promise<void>} Resolves once the (possible) token/event have
    *   been created, whether or not the email matched an account.
@@ -72,7 +74,7 @@ export class PasswordResetService {
 
     const user = await this.userRepository.findOneBy({ email: dto.email });
 
-    if (!user) {
+    if (!user || user.status === UserStatus.DENIED) {
       this.logger.info('password recovery user not found', {
         context: 'PasswordResetService',
         email: dto.email,
@@ -132,14 +134,24 @@ export class PasswordResetService {
    * and marks the token used (so it can't be replayed). Every rejection
    * reason (unknown token, already-used token, expired token) collapses
    * into the same generic error, per the issue's uniform-error contract —
-   * the client never learns which case it hit.
+   * the client never learns which case it hit. A valid token of a **denied**
+   * (or missing) user gets that same error, checked before hashing the new
+   * password, and the token is left unconsumed; a pending user resets
+   * normally and stays pending.
    * @param {ResetPasswordDto} dto - Carries the token and the new password.
    * @returns {Promise<number>} The ID of the user whose password was reset,
    *   so the caller (`AuthService`) can revoke that user's other sessions.
-   * @throws {BadRequestException} When the token is unknown, already used, or expired.
+   * @throws {BadRequestException} When the token is unknown, already used,
+   *   expired, or belongs to a denied user.
    */
   async resetPassword(dto: ResetPasswordDto): Promise<number> {
     const tokenRow = await this.#findActiveToken(dto.token);
+    const user = await this.userRepository.findOneBy({ id: tokenRow.userId });
+
+    if (!user || user.status === UserStatus.DENIED) {
+      throw new BadRequestException('Invalid or expired token');
+    }
+
     const passwordDigest = await bcrypt.hash(dto.password, 10);
 
     await this.userRepository.update(tokenRow.userId, { passwordDigest });

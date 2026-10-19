@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import bcrypt from 'bcryptjs';
 import { PasswordResetToken } from '../entities/password-reset-token.entity.js';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 import { PasswordResetService } from '../password-reset.service.js';
 import { repoMock, RepoMock } from './repo-mock.test-support.js';
 
@@ -40,7 +40,7 @@ describe('PasswordResetService', () => {
   });
 
   describe('recover', () => {
-    const user = { id: 1, username: 'darthjee', email: 'darthjee@example.com' } as User;
+    const user = { id: 1, username: 'darthjee', email: 'darthjee@example.com', status: UserStatus.APPROVED } as User;
 
     it('logs that a password recovery was requested', async () => {
       userRepository.findOneBy.mockResolvedValue(null);
@@ -129,6 +129,45 @@ describe('PasswordResetService', () => {
         });
       });
     });
+
+    describe('when the email matches a pending account', () => {
+      beforeEach(() => {
+        userRepository.findOneBy.mockResolvedValue({ ...user, status: UserStatus.PENDING });
+      });
+
+      it('creates a token and emits the event, like for an approved account', async () => {
+        await service.recover({ email: 'darthjee@example.com' });
+
+        expect(passwordResetTokenRepository.save).toHaveBeenCalledTimes(1);
+        expect(eventEmitter.emit).toHaveBeenCalledWith('password-recovery.requested', expect.anything());
+      });
+    });
+
+    describe('when the email matches a denied account', () => {
+      beforeEach(() => {
+        userRepository.findOneBy.mockResolvedValue({ ...user, status: UserStatus.DENIED });
+      });
+
+      it('resolves without throwing', async () => {
+        await expect(service.recover({ email: 'darthjee@example.com' })).resolves.toBeUndefined();
+      });
+
+      it('creates no password-reset token and emits no event', async () => {
+        await service.recover({ email: 'darthjee@example.com' });
+
+        expect(passwordResetTokenRepository.save).not.toHaveBeenCalled();
+        expect(eventEmitter.emit).not.toHaveBeenCalled();
+      });
+
+      it('logs exactly what an unknown email logs', async () => {
+        await service.recover({ email: 'darthjee@example.com' });
+
+        expect(logger.info.mock.calls).toEqual([
+          ['password recovery requested', { context: 'PasswordResetService' }],
+          ['password recovery user not found', { context: 'PasswordResetService', email: 'darthjee@example.com' }],
+        ]);
+      });
+    });
   });
 
   describe('issueToken', () => {
@@ -171,9 +210,18 @@ describe('PasswordResetService', () => {
       expiresAt: new Date(Date.now() + 60_000),
     };
 
+    const owner = { id: 1, username: 'darthjee', status: UserStatus.APPROVED } as User;
+
     describe('when the token is active', () => {
       beforeEach(() => {
         passwordResetTokenRepository.findOneBy.mockResolvedValue(activeToken);
+        userRepository.findOneBy.mockResolvedValue(owner);
+      });
+
+      it('loads the token owner', async () => {
+        await service.resetPassword({ token: 'a-token', password: 'new-password' });
+
+        expect(userRepository.findOneBy).toHaveBeenCalledWith({ id: 1 });
       });
 
       it('resolves with the token owner\'s user id', async () => {
@@ -198,6 +246,57 @@ describe('PasswordResetService', () => {
         expect(passwordResetTokenRepository.update).toHaveBeenCalledWith(10, {
           usedAt: expect.any(Date),
         });
+      });
+    });
+
+    describe('when the token is active and its owner pending', () => {
+      beforeEach(() => {
+        passwordResetTokenRepository.findOneBy.mockResolvedValue(activeToken);
+        userRepository.findOneBy.mockResolvedValue({ ...owner, status: UserStatus.PENDING });
+      });
+
+      it('resets the password without touching the status', async () => {
+        await expect(service.resetPassword({ token: 'a-token', password: 'new-password' })).resolves.toBe(1);
+
+        const [, changes] = userRepository.update.mock.calls[0];
+
+        expect(Object.keys(changes)).toEqual(['passwordDigest']);
+      });
+    });
+
+    describe.each([
+      ['denied', { ...owner, status: UserStatus.DENIED }],
+      ['missing', null],
+    ])('when the token is active but its owner is %s', (_label, tokenOwner) => {
+      let hashSpy: jest.SpyInstance;
+
+      beforeEach(() => {
+        passwordResetTokenRepository.findOneBy.mockResolvedValue(activeToken);
+        userRepository.findOneBy.mockResolvedValue(tokenOwner);
+        hashSpy = jest.spyOn(bcrypt, 'hash');
+      });
+
+      afterEach(() => {
+        hashSpy.mockRestore();
+      });
+
+      it('rejects with the same BadRequestException as an unknown token', async () => {
+        await expect(
+          service.resetPassword({ token: 'a-token', password: 'new-password' }),
+        ).rejects.toThrow(new BadRequestException('Invalid or expired token'));
+      });
+
+      it('never hashes the new password', async () => {
+        await expect(service.resetPassword({ token: 'a-token', password: 'new-password' })).rejects.toThrow();
+
+        expect(hashSpy).not.toHaveBeenCalled();
+      });
+
+      it('neither changes the password nor consumes the token', async () => {
+        await expect(service.resetPassword({ token: 'a-token', password: 'new-password' })).rejects.toThrow();
+
+        expect(userRepository.update).not.toHaveBeenCalled();
+        expect(passwordResetTokenRepository.update).not.toHaveBeenCalled();
       });
     });
 
