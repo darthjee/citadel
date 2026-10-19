@@ -5,12 +5,17 @@ describe('AdminUsersHelper', () => {
   const buildHandlers = () => ({
     onSubmit: jasmine.createSpy('onSubmit'),
     onQueryChange: jasmine.createSpy('onQueryChange'),
+    onStatusChange: jasmine.createSpy('onStatusChange'),
     onGenerateLink: jasmine.createSpy('onGenerateLink').and.returnValue(jasmine.createSpy('handler')),
     onSendEmail: jasmine.createSpy('onSendEmail').and.returnValue(jasmine.createSpy('handler')),
+    onApprove: jasmine.createSpy('onApprove').and.returnValue(jasmine.createSpy('handler')),
+    onDeny: jasmine.createSpy('onDeny').and.returnValue(jasmine.createSpy('handler')),
   });
   const buildState = (overrides = {}) => ({
     query: '',
+    status: '',
     users: [],
+    currentUserId: null,
     rowResults: {},
     searchError: null,
     ...overrides,
@@ -25,6 +30,23 @@ describe('AdminUsersHelper', () => {
       const page = renderPage(buildState());
 
       expect(page.contains('Search by username or email')).toBeTrue();
+    });
+
+    it('renders the status filter with every option', () => {
+      const page = renderPage(buildState());
+
+      expect(page.containsTag('select')).withContext('select').toBeTrue();
+      expect(page.containsElement('option', 'All')).withContext('All').toBeTrue();
+      expect(page.containsAttribute('value', '')).withContext('All value').toBeTrue();
+      expect(page.containsElement('option', 'Pending')).withContext('Pending').toBeTrue();
+      expect(page.containsElement('option', 'Approved')).withContext('Approved').toBeTrue();
+      expect(page.containsElement('option', 'Denied')).withContext('Denied').toBeTrue();
+    });
+
+    it('marks the current status filter as selected', () => {
+      const page = renderPage(buildState({ status: 'denied' }));
+
+      expect(page.contains('<option value="denied" selected="">')).toBeTrue();
     });
 
     it('renders the search error alert when present', () => {
@@ -48,8 +70,9 @@ describe('AdminUsersHelper', () => {
 
     describe('with search results', () => {
       const users = [{
-        id: 1, username: 'foo', email: 'foo@example.com', isAdmin: true, createdAt: '2026-01-01',
+        id: 1, username: 'foo', email: 'foo@example.com', isAdmin: true, status: 'approved', createdAt: '2026-01-01',
       }];
+      const withStatus = (status, overrides = {}) => [{ ...users[0], status, ...overrides }];
 
       it('renders a row per user', () => {
         const page = renderPage(buildState({ users }));
@@ -109,6 +132,62 @@ describe('AdminUsersHelper', () => {
 
         expect(page.contains('Email sent')).withContext('success message').toBeFalse();
         expect(page.contains('Email failed to send')).withContext('failure message').toBeFalse();
+      });
+
+      it('renders a Status column with the user status', () => {
+        const page = renderPage(buildState({ users }));
+
+        expect(page.containsElement('th', 'Status')).withContext('header').toBeTrue();
+        expect(page.containsElement('td', 'approved')).withContext('cell').toBeTrue();
+      });
+
+      it('renders Approve only on pending rows', () => {
+        expect(renderPage(buildState({ users: withStatus('pending') })).containsElement('button', 'Approve'))
+          .withContext('pending').toBeTrue();
+        expect(renderPage(buildState({ users: withStatus('approved') })).containsElement('button', 'Approve'))
+          .withContext('approved').toBeFalse();
+        expect(renderPage(buildState({ users: withStatus('denied') })).containsElement('button', 'Approve'))
+          .withContext('denied').toBeFalse();
+      });
+
+      it('renders Deny on other users\' pending and approved rows', () => {
+        const state = { currentUserId: 99 };
+
+        expect(renderPage(buildState({ ...state, users: withStatus('pending') })).containsElement('button', 'Deny'))
+          .withContext('pending').toBeTrue();
+        expect(renderPage(buildState({ ...state, users: withStatus('approved') })).containsElement('button', 'Deny'))
+          .withContext('approved').toBeTrue();
+      });
+
+      it('hides Deny on the own row', () => {
+        const page = renderPage(buildState({ currentUserId: 1, users: withStatus('approved') }));
+
+        expect(page.containsElement('button', 'Deny')).toBeFalse();
+      });
+
+      it('hides Deny on denied rows', () => {
+        const page = renderPage(buildState({ currentUserId: 99, users: withStatus('denied') }));
+
+        expect(page.containsElement('button', 'Deny')).toBeFalse();
+      });
+
+      it('binds the approve and deny handlers to the row user id', () => {
+        const handlers = buildHandlers();
+
+        renderPage(buildState({ currentUserId: 99, users: withStatus('pending') }), handlers);
+
+        expect(handlers.onApprove).toHaveBeenCalledWith(1);
+        expect(handlers.onDeny).toHaveBeenCalledWith(1);
+      });
+
+      ['pending', 'approved', 'denied'].forEach((status) => {
+        it(`keeps the Edit, Generate link and Send email actions on ${status} rows`, () => {
+          const page = renderPage(buildState({ users: withStatus(status) }));
+
+          expect(page.containsElement('a', 'Edit')).withContext('Edit').toBeTrue();
+          expect(page.contains('Generate link')).withContext('Generate link').toBeTrue();
+          expect(page.contains('Send email')).withContext('Send email').toBeTrue();
+        });
       });
     });
   });

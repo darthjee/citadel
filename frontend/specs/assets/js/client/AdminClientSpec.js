@@ -27,7 +27,82 @@ describe('AdminClient', () => {
 
       await AdminClient.searchUsers();
 
-      expect(ApiClient.postJson).toHaveBeenCalledWith('/admin/users/search.json', { q: undefined });
+      expect(ApiClient.postJson).toHaveBeenCalledWith('/admin/users/search.json', {});
+    });
+
+    it('sends the status when given', async () => {
+      spyOn(ApiClient, 'postJson').and.resolveTo({ users: [] });
+
+      await AdminClient.searchUsers('foo', 'pending');
+
+      expect(ApiClient.postJson).toHaveBeenCalledWith('/admin/users/search.json', {
+        q: 'foo', status: 'pending',
+      });
+    });
+
+    it('sends the status without a search term', async () => {
+      spyOn(ApiClient, 'postJson').and.resolveTo({ users: [] });
+
+      await AdminClient.searchUsers(undefined, 'denied');
+
+      expect(ApiClient.postJson).toHaveBeenCalledWith('/admin/users/search.json', { status: 'denied' });
+    });
+
+    it('does not send the status when omitted', async () => {
+      spyOn(ApiClient, 'postJson').and.resolveTo({ users: [] });
+
+      await AdminClient.searchUsers('foo');
+
+      expect(ApiClient.postJson.calls.mostRecent().args[1]).toEqual({ q: 'foo' });
+    });
+
+    it('resolves with the currentUserId alongside the users', async () => {
+      const body = { users: [{ id: 1, status: 'pending' }], currentUserId: 7 };
+      spyOn(ApiClient, 'postJson').and.resolveTo(body);
+
+      const response = await AdminClient.searchUsers();
+
+      expect(response).toEqual(body);
+    });
+  });
+
+  describe('.approveUser', () => {
+    const user = { id: 42, username: 'foo', status: 'approved' };
+
+    it('posts an empty body to the approve endpoint for the given user', async () => {
+      spyOn(ApiClient, 'postJson').and.resolveTo({ user });
+
+      await AdminClient.approveUser(42);
+
+      expect(ApiClient.postJson).toHaveBeenCalledWith('/admin/users/42/approve.json', {});
+    });
+
+    it('resolves with the parsed user response', async () => {
+      spyOn(ApiClient, 'postJson').and.resolveTo({ user });
+
+      const response = await AdminClient.approveUser(42);
+
+      expect(response).toEqual({ user });
+    });
+  });
+
+  describe('.denyUser', () => {
+    const user = { id: 42, username: 'foo', status: 'denied' };
+
+    it('posts an empty body to the deny endpoint for the given user', async () => {
+      spyOn(ApiClient, 'postJson').and.resolveTo({ user });
+
+      await AdminClient.denyUser(42);
+
+      expect(ApiClient.postJson).toHaveBeenCalledWith('/admin/users/42/deny.json', {});
+    });
+
+    it('resolves with the parsed user response', async () => {
+      spyOn(ApiClient, 'postJson').and.resolveTo({ user });
+
+      const response = await AdminClient.denyUser(42);
+
+      expect(response).toEqual({ user });
     });
   });
 
