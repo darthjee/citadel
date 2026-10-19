@@ -61,8 +61,12 @@ full file before loading it. For a bare link-only table of contents instead, see
   endpoints are excluded from warming by default. Also documents the per-user cache Tent is
   developing, expected to eventually replace `X-Skip-Cache` for user-scoped reads.
 
-## Plans & Issues
+## Specs, Plans & Issues
 
+- **[Specs](specs.md)** — Permanent hub for feature specs: temporary, agreed definitions of a
+  multi-issue feature (one folder per feature under `specs/`) that its sub-issues build against,
+  then fold into the permanent docs. Lists the active and completed specs; read it to find the
+  source of truth for an in-progress feature.
 - **[Plans](plans/)** — Implementation plans for ongoing or upcoming features, one directory per
   issue (`<issue_id>_<topic>/`).
 - **[Issues](issues/)** — Detailed specs for open issues, one file per issue

@@ -110,6 +110,7 @@ All project documentation lives under [`docs/agents/`](docs/agents/):
 | [Product Definitions](docs/agents/product.md) | Stub — template-level decisions plus sections each derived project fills in. Consult before planning any issue that introduces new entities. |
 | [External Tooling](docs/agents/external.md) | Hub linking full usage guides for external, project-agnostic tools (Tent, Navi, navi-hey-client). |
 | [Cache Warmer](docs/agents/cache-warmer.md) | Navi setup for warming the proxy cache after release (CI and local); used by the `cache` agent. |
+| [Specs](docs/agents/specs.md) | Permanent hub for feature specs: temporary, shared definitions of multi-issue features (lifecycle, conventions, active/completed list). |
 | [Plans](docs/agents/plans/) | Implementation plans for ongoing or upcoming features. |
 | [Issues](docs/agents/issues/) | Detailed specs for open issues. |
 | [Issue Enhancement](docs/agents/issue-enhancement.md) | Checklist of concerns used by `/enhance-issue` to flesh out vague issue ideas. |

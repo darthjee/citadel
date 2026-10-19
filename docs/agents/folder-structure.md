@@ -83,9 +83,10 @@
 |---|---|
 | `architecture/` | Per-area architecture pages (`proxy.md`, `frontend.md`, `backend.md`, `modular-pattern.md`, `infra.md`) |
 | `modules/` | Per-backend-module documentation (routes, entities, events) — `auth.md` today |
+| `specs/` | Temporary per-feature spec folders (`specs/<feature>/`), listed in and governed by `specs.md`; each is deleted once its feature is folded into the permanent docs |
 | `plans/` | Implementation plans, one directory per issue |
 | `issues/` | Detailed specs for open issues, one file per issue |
-| `index.md`, `summary.md`, `folder-structure.md`, `flow.md`, `architecture.md`, `contributing.md`, `cache-warmer.md`, `product.md`, `issue-enhancement.md` | Top-level reference docs |
+| `index.md`, `summary.md`, `folder-structure.md`, `flow.md`, `architecture.md`, `contributing.md`, `cache-warmer.md`, `product.md`, `issue-enhancement.md`, `specs.md` | Top-level reference docs |
 
 ## `dockerfiles/` — Service Images
 
