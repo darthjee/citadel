@@ -8,12 +8,14 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { createInMemoryRepo } from './in-memory-repo.js';
+import { InMemorySessionLookup } from './in-memory-session-lookup.js';
 import { AdminGuard } from '../../../core/admin.guard.js';
 import { CachePolicyInterceptor } from '../../../core/cache-policy.interceptor.js';
 import { HttpExceptionFilter } from '../../../core/http-exception.filter.js';
 import { JwtGuard } from '../../../core/jwt.guard.js';
 import { LoggingModule } from '../../../core/logging.module.js';
 import { OriginGuard } from '../../../core/origin.guard.js';
+import { SESSION_LOOKUP } from '../../../core/session-lookup.js';
 import { AuthModule } from '../../auth.module.js';
 import { AccountEditLockout } from '../../entities/account-edit-lockout.entity.js';
 import { AuthorizationRequest } from '../../entities/authorization-request.entity.js';
@@ -48,7 +50,11 @@ export interface BuildAuthTestAppResult {
 // the standard error body, as under the real `AppModule`);
 // overrides the `User`, `RefreshToken`, `PasswordResetToken`,
 // `AuthorizationRequest`, and `AccountEditLockout` repository tokens with fresh
-// `createInMemoryRepo()` instances; and registers the `darthjee` test user via
+// `createInMemoryRepo()` instances; overrides `SESSION_LOOKUP` with an
+// `InMemorySessionLookup` over the user/refresh-token repos' live rows (the
+// real `SessionService` join cannot run on the in-memory repos), so
+// `JwtGuard`'s session gate sees logouts, revocations and row edits made by
+// the spec; and registers the `darthjee` test user via
 // `POST /auth/register.json`.
 //
 // Options (defaults preserve the behavior described above):
@@ -101,7 +107,9 @@ export async function buildAuthTestApp({
     .overrideProvider(getRepositoryToken(AuthorizationRequest))
     .useValue(authorizationRequestRepo)
     .overrideProvider(getRepositoryToken(AccountEditLockout))
-    .useValue(accountEditLockoutRepo);
+    .useValue(accountEditLockoutRepo)
+    .overrideProvider(SESSION_LOOKUP)
+    .useValue(new InMemorySessionLookup(userRepo.rows, refreshTokenRepo.rows));
 
   if (Object.keys(configOverrides).length > 0) {
     moduleBuilder.overrideProvider(ConfigService).useValue({ get: (key: string) => configOverrides[key] });

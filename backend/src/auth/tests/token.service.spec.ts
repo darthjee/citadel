@@ -41,14 +41,45 @@ describe('TokenService', () => {
       expect(result.refreshToken).toEqual(expect.any(String));
     });
 
-    it('signs the access token with the user sub, username and isAdmin claims', async () => {
+    it('signs the access token with the user sub, sid, username and isAdmin claims', async () => {
       await service.issueTokens(user);
 
       expect(jwtService.sign).toHaveBeenCalledWith({
         sub: 7,
+        sid: expect.stringMatching(UUID_PATTERN),
         username: 'darthjee',
         isAdmin: false,
       });
+    });
+
+    it('signs a sid equal to the saved row sessionUuid for a new session', async () => {
+      await service.issueTokens(user);
+
+      const { sessionUuid } = refreshTokenRepository.save.mock.calls[0][0];
+
+      expect(jwtService.sign.mock.calls[0][0].sid).toBe(sessionUuid);
+    });
+
+    it('signs a sid equal to the continued session sessionUuid', async () => {
+      const session = { sessionUuid: '11111111-2222-4333-8444-555555555555', startedAt: new Date('2026-01-01T00:00:00Z') };
+
+      await service.issueTokens(user, session);
+
+      const { sessionUuid } = refreshTokenRepository.save.mock.calls[0][0];
+
+      expect(sessionUuid).toBe(session.sessionUuid);
+      expect(jwtService.sign.mock.calls[0][0].sid).toBe(session.sessionUuid);
+    });
+
+    it('produces an access token that decodes to the saved row sessionUuid as sid', async () => {
+      const realJwt = new JwtService({ secret: 'test-secret' });
+      const realService = new TokenService(refreshTokenRepository as never, realJwt);
+
+      const { accessToken } = await realService.issueTokens(user);
+
+      const { sessionUuid } = refreshTokenRepository.save.mock.calls[0][0];
+
+      expect(realJwt.verify(accessToken)).toEqual(expect.objectContaining({ sub: 7, sid: sessionUuid }));
     });
 
     it('signs the access token with isAdmin: true for an admin user', async () => {
