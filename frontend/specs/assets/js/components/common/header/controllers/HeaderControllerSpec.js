@@ -1,6 +1,7 @@
 import HeaderController from '../../../../../../../assets/js/components/common/header/controllers/HeaderController.js';
 import AuthSession from '../../../../../../../assets/js/client/AuthSession.js';
 import AuthEvents from '../../../../../../../assets/js/client/AuthEvents.js';
+import AuthStatus from '../../../../../../../assets/js/client/AuthStatus.js';
 import LoginModalEvents from '../../../../../../../assets/js/client/LoginModalEvents.js';
 import { installFakeWindow, uninstallFakeWindow } from '../../../../../../support/fakeWindow.js';
 
@@ -82,11 +83,27 @@ describe('HeaderController', () => {
   });
 
   describe('#checkStatus', () => {
-    it('emits false/false without calling the backend when there is no stored token', async () => {
+    it('delegates to AuthStatus.refresh with its client', async () => {
+      spyOn(AuthStatus, 'refresh').and.resolveTo();
+
+      await controller.checkStatus();
+
+      expect(AuthStatus.refresh).toHaveBeenCalledWith(client);
+    });
+
+    it('returns the AuthStatus.refresh promise', () => {
+      const promise = Promise.resolve();
+
+      spyOn(AuthStatus, 'refresh').and.returnValue(promise);
+
+      expect(controller.checkStatus()).toBe(promise);
+    });
+
+    it('emits false/false/false without calling the backend when there is no stored token', async () => {
       await controller.checkStatus();
 
       expect(client.status).not.toHaveBeenCalled();
-      expect(AuthEvents.emit).toHaveBeenCalledWith(false, false);
+      expect(AuthEvents.emit).toHaveBeenCalledWith(false, false, false);
     });
 
     it('emits true and the admin flag, leaving the stored token untouched, when it is still active', async () => {
@@ -97,7 +114,17 @@ describe('HeaderController', () => {
 
       expect(client.status).toHaveBeenCalledWith('refresh-token');
       expect(AuthSession.get()).toBe('refresh-token');
-      expect(AuthEvents.emit).toHaveBeenCalledWith(true, true);
+      expect(AuthEvents.emit).toHaveBeenCalledWith(true, true, false);
+    });
+
+    it('keeps the stored token and emits pending when the user awaits approval', async () => {
+      AuthSession.set('refresh-token');
+      client.status.and.resolveTo({ loggedIn: false, isAdmin: false, status: 'pending' });
+
+      await controller.checkStatus();
+
+      expect(AuthSession.get()).toBe('refresh-token');
+      expect(AuthEvents.emit).toHaveBeenCalledWith(false, false, true);
     });
 
     it('clears the stored token and emits false when it is no longer active', async () => {
@@ -107,7 +134,7 @@ describe('HeaderController', () => {
       await controller.checkStatus();
 
       expect(AuthSession.get()).toBeNull();
-      expect(AuthEvents.emit).toHaveBeenCalledWith(false, false);
+      expect(AuthEvents.emit).toHaveBeenCalledWith(false, false, false);
     });
   });
 });

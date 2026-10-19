@@ -1,6 +1,7 @@
 import AccountsClient from '../../../../client/AccountsClient.js';
 import AuthSession from '../../../../client/AuthSession.js';
 import AuthEvents from '../../../../client/AuthEvents.js';
+import AuthStatus from '../../../../client/AuthStatus.js';
 import LoginModalEvents from '../../../../client/LoginModalEvents.js';
 import { redirectHome } from '../../../../utils/routing/redirects.js';
 
@@ -51,27 +52,12 @@ export default class HeaderController {
 
   /**
    * Confirm the current auth state against the backend and announce it via {@link AuthEvents}.
-   * Skips the network call entirely when there is no stored refresh token — a missing token is
-   * unambiguously "logged out". When the backend reports the stored token is no longer active,
-   * the stale token is cleared from `AuthSession` before emitting, so `ApiClient`'s 401-retry
-   * logic does not keep attempting to refresh with a token already known to be dead.
+   * Delegates to {@link AuthStatus.refresh}, which skips the request without a stored token,
+   * keeps the token for a logged-in or pending (awaiting approval) user, and clears it otherwise.
    *
    * @returns {Promise<void>} Resolves once the status check finishes.
    */
-  async checkStatus() {
-    const token = AuthSession.get();
-
-    if (!token) {
-      AuthEvents.emit(false, false);
-      return;
-    }
-
-    const { loggedIn, isAdmin } = await this.client.status(token);
-
-    if (!loggedIn) {
-      AuthSession.clear();
-    }
-
-    AuthEvents.emit(loggedIn, isAdmin);
+  checkStatus() {
+    return AuthStatus.refresh(this.client);
   }
 }

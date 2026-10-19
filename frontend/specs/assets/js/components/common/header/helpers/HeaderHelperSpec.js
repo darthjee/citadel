@@ -116,4 +116,29 @@ describe('HeaderHelper', () => {
       expect(markup).toContain('Authorizations');
     });
   });
+
+  describe('when pending approval', () => {
+    const pendingMarkup = (isLoggedIn) => renderToStaticMarkup(React.createElement(
+      'div', null, HeaderHelper.render(isLoggedIn, false, onLogout, onOpenLogin, true),
+    ));
+
+    it('keeps the brand', () => {
+      expect(pendingMarkup(false)).toContain('Citadel Placeholder');
+    });
+
+    it('renders no login links', () => {
+      const markup = pendingMarkup(false);
+
+      expect(markup).not.toContain('>Login<');
+      expect(markup).not.toContain('>Register<');
+      expect(markup).not.toContain('>Recover<');
+    });
+
+    it('renders no logged-in menu, even with loggedIn set', () => {
+      const markup = pendingMarkup(true);
+
+      expect(markup).not.toContain('Logout');
+      expect(markup).not.toContain('My account');
+    });
+  });
 });

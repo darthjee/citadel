@@ -53,16 +53,22 @@ function renderMyAccountDropdown() {
 
 /**
  * Render the Login/Register/Recover links when logged out, or the Logout action (plus, for an
- * admin, the Admin Users link, and the "My account" dropdown) when logged in.
+ * admin, the Admin Users link, and the "My account" dropdown) when logged in. Renders nothing
+ * while the session is pending admin approval (the Awaiting-approval view owns Log out then).
  *
  * @param {boolean} isLoggedIn - Whether a session is currently active.
  * @param {boolean} isAdmin - Whether the current session belongs to an admin user.
  * @param {Function} onLogout - Click handler for the Logout link, used when logged in.
  * @param {Function} onOpenLogin - Called with a mode string (`'password'` / `'register'` /
  *   `'recover'`) to open the login modal, used by the Login/Register/Recover links.
- * @returns {React.ReactElement} The rendered auth nav links.
+ * @param {boolean} pending - Whether the session is awaiting admin approval.
+ * @returns {React.ReactElement|null} The rendered auth nav links, or `null` while pending.
  */
-function renderAuthLinks(isLoggedIn, isAdmin, onLogout, onOpenLogin) {
+function renderAuthLinks(isLoggedIn, isAdmin, onLogout, onOpenLogin, pending) {
+  if (pending) {
+    return null;
+  }
+
   if (isLoggedIn) {
     return (
       <>
@@ -95,9 +101,11 @@ const HeaderHelper = {
    * @param {Function} onOpenLogin - Called with a mode string (`'password'` / `'register'` /
    *   `'recover'`) to open the login modal, used by the Login/Register/Recover links when
    *   logged out.
+   * @param {boolean} [pending] - Whether the session is awaiting admin approval; hides every
+   *   auth link (the brand stays).
    * @returns {React.ReactElement} The rendered navigation bar.
    */
-  render(isLoggedIn, isAdmin, onLogout, onOpenLogin) {
+  render(isLoggedIn, isAdmin, onLogout, onOpenLogin, pending = false) {
     return (
       <Navbar bg="light" expand="md">
         <Container fluid>
@@ -105,7 +113,7 @@ const HeaderHelper = {
           <Navbar.Toggle aria-controls="header-navbar" />
           <Navbar.Collapse id="header-navbar">
             <Nav className="me-auto">
-              {renderAuthLinks(isLoggedIn, isAdmin, onLogout, onOpenLogin)}
+              {renderAuthLinks(isLoggedIn, isAdmin, onLogout, onOpenLogin, pending)}
             </Nav>
           </Navbar.Collapse>
         </Container>
