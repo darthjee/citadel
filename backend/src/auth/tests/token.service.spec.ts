@@ -254,6 +254,22 @@ describe('TokenService', () => {
     });
   });
 
+  describe('revokeUserTokens', () => {
+    it.each([
+      RevokedReason.PASSWORD_RESET,
+      RevokedReason.REPLAY_DETECTED,
+      RevokedReason.ADMIN_DENIED,
+    ])('revokes every still-unrevoked row of the user with %s', async (reason) => {
+      await service.revokeUserTokens(7, reason);
+
+      expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { userId: 7, revokedAt: IsNull() },
+        { revokedAt: expect.any(Date), revokedReason: reason },
+      );
+    });
+  });
+
   describe('hashToken', () => {
     it('returns the SHA-256 hex digest of the value', () => {
       expect(service.hashToken('abc')).toBe(

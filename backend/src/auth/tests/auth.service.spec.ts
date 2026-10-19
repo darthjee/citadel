@@ -20,7 +20,13 @@ import { repoMock, RepoMock } from './repo-mock.test-support.js';
 describe('AuthService', () => {
   let userRepository: RepoMock<User>;
   let refreshTokenRepository: RepoMock<RefreshToken>;
-  let tokenService: { issueTokens: jest.Mock; rotateTokens: jest.Mock; hashToken: jest.Mock; revokeToken: jest.Mock };
+  let tokenService: {
+    issueTokens: jest.Mock;
+    rotateTokens: jest.Mock;
+    hashToken: jest.Mock;
+    revokeToken: jest.Mock;
+    revokeUserTokens: jest.Mock;
+  };
   let eventEmitter: { emit: jest.Mock };
   let passwordResetService: { recover: jest.Mock; resetPassword: jest.Mock };
   let userApprovalConfig: UserApprovalConfig;
@@ -66,6 +72,7 @@ describe('AuthService', () => {
       })),
       hashToken: jest.fn((token: string) => `hashed:${token}`),
       revokeToken: jest.fn(async () => undefined),
+      revokeUserTokens: jest.fn(async () => undefined),
     };
     eventEmitter = { emit: jest.fn() };
     passwordResetService = { recover: jest.fn(), resetPassword: jest.fn() };
@@ -391,7 +398,7 @@ describe('AuthService', () => {
         await expect(service.refresh('a-refresh-token')).rejects.toThrow(UnauthorizedException);
 
         expect(tokenService.revokeToken).toHaveBeenCalledWith(activeToken.id, RevokedReason.ADMIN_DENIED);
-        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+        expect(tokenService.revokeUserTokens).not.toHaveBeenCalled();
         expect(tokenService.rotateTokens).not.toHaveBeenCalled();
       });
     });
@@ -415,7 +422,7 @@ describe('AuthService', () => {
 
         expect(tokenService.rotateTokens).toHaveBeenCalledWith(user, activeToken);
         expect(tokenService.issueTokens).not.toHaveBeenCalled();
-        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+        expect(tokenService.revokeUserTokens).not.toHaveBeenCalled();
       });
 
       it('propagates a lost rotation race as 401', async () => {
@@ -467,9 +474,9 @@ describe('AuthService', () => {
       it('treats the replay as a compromise signal, revoking every active token with replay_detected', async () => {
         await expect(service.refresh('reused-token')).rejects.toThrow(UnauthorizedException);
 
-        expect(refreshTokenRepository.update).toHaveBeenCalledWith(
-          { userId: activeToken.userId, revokedAt: IsNull() },
-          { revokedAt: expect.any(Date), revokedReason: RevokedReason.REPLAY_DETECTED },
+        expect(tokenService.revokeUserTokens).toHaveBeenCalledWith(
+          activeToken.userId,
+          RevokedReason.REPLAY_DETECTED,
         );
         expect(tokenService.rotateTokens).not.toHaveBeenCalled();
       });
@@ -491,7 +498,7 @@ describe('AuthService', () => {
           await expect(service.refresh('revoked-token')).rejects.toThrow(
             new UnauthorizedException('Invalid or expired refresh token'),
           );
-          expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+          expect(tokenService.revokeUserTokens).not.toHaveBeenCalled();
           expect(tokenService.rotateTokens).not.toHaveBeenCalled();
         });
       },
@@ -511,7 +518,7 @@ describe('AuthService', () => {
         await expect(service.refresh('old-rotated-token')).rejects.toThrow(
           new UnauthorizedException('Invalid or expired refresh token'),
         );
-        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+        expect(tokenService.revokeUserTokens).not.toHaveBeenCalled();
       });
     });
 
@@ -529,7 +536,7 @@ describe('AuthService', () => {
       it('does not treat plain expiry as a compromise signal, leaving the token family untouched', async () => {
         await expect(service.refresh('expired-token')).rejects.toThrow(UnauthorizedException);
 
-        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+        expect(tokenService.revokeUserTokens).not.toHaveBeenCalled();
       });
     });
   });
@@ -575,10 +582,7 @@ describe('AuthService', () => {
       it('revokes only the active refresh tokens of that user, with password_reset', async () => {
         await service.resetPassword({ token: 'a-token', password: 'new-password' });
 
-        expect(refreshTokenRepository.update).toHaveBeenCalledWith(
-          { userId: 1, revokedAt: IsNull() },
-          { revokedAt: expect.any(Date), revokedReason: RevokedReason.PASSWORD_RESET },
-        );
+        expect(tokenService.revokeUserTokens).toHaveBeenCalledWith(1, RevokedReason.PASSWORD_RESET);
       });
     });
 
@@ -600,7 +604,7 @@ describe('AuthService', () => {
           service.resetPassword({ token: 'bad-token', password: 'new-password' }),
         ).rejects.toThrow(BadRequestException);
 
-        expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+        expect(tokenService.revokeUserTokens).not.toHaveBeenCalled();
       });
     });
   });
