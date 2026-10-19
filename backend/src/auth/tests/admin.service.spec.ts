@@ -7,10 +7,12 @@ import {
 import { ILike } from 'typeorm';
 import { ErrorCodes } from '../../core/error-codes.js';
 import { MailService } from '../../mail/mail.service.js';
-import { AdminService, USER_NOT_PENDING_MESSAGE } from '../admin.service.js';
+import { AdminService, CANNOT_DENY_SELF_MESSAGE, USER_NOT_PENDING_MESSAGE } from '../admin.service.js';
 import { AuthService } from '../auth.service.js';
+import { RevokedReason } from '../entities/refresh-token.entity.js';
 import { User, UserStatus } from '../entities/user.entity.js';
 import { PasswordResetService } from '../password-reset.service.js';
+import { TokenService } from '../token.service.js';
 import { UserUpdateService } from '../user-update.service.js';
 
 type UserRepoMock = {
@@ -33,6 +35,7 @@ describe('AdminService', () => {
   let passwordResetService: { issueToken: jest.Mock };
   let mailService: { sendEmailTemplate: jest.Mock };
   let userUpdateService: { applyUserUpdate: jest.Mock };
+  let tokenService: { revokeUserTokens: jest.Mock };
   let service: AdminService;
 
   beforeEach(() => {
@@ -41,6 +44,7 @@ describe('AdminService', () => {
     passwordResetService = { issueToken: jest.fn() };
     mailService = { sendEmailTemplate: jest.fn() };
     userUpdateService = { applyUserUpdate: jest.fn().mockResolvedValue(undefined) };
+    tokenService = { revokeUserTokens: jest.fn().mockResolvedValue(undefined) };
 
     service = new AdminService(
       userRepository as never,
@@ -48,6 +52,7 @@ describe('AdminService', () => {
       passwordResetService as unknown as PasswordResetService,
       mailService as unknown as MailService,
       userUpdateService as unknown as UserUpdateService,
+      tokenService as unknown as TokenService,
     );
   });
 
@@ -156,6 +161,82 @@ describe('AdminService', () => {
           code: ErrorCodes.USER_NOT_PENDING,
           message: USER_NOT_PENDING_MESSAGE,
         });
+      });
+    });
+  });
+
+  describe('denyUser', () => {
+    const callerId = 1;
+    const target = { id: 3, username: 'padawan', isAdmin: false, status: UserStatus.APPROVED } as User;
+
+    describe('when the user does not exist', () => {
+      beforeEach(() => {
+        userRepository.findOneBy.mockResolvedValue(null);
+      });
+
+      it('rejects with NotFoundException without writing anything', async () => {
+        await expect(service.denyUser(404, callerId)).rejects.toThrow(new NotFoundException('User not found'));
+        expect(userRepository.update).not.toHaveBeenCalled();
+        expect(tokenService.revokeUserTokens).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('when the user is the caller', () => {
+      beforeEach(() => {
+        userRepository.findOneBy.mockResolvedValue({ ...target, id: callerId, isAdmin: true });
+      });
+
+      it('rejects with 422 CANNOT_DENY_SELF without writing anything', async () => {
+        const error = await service.denyUser(callerId, callerId).catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(UnprocessableEntityException);
+        expect((error as UnprocessableEntityException).getResponse()).toEqual({
+          code: ErrorCodes.CANNOT_DENY_SELF,
+          message: CANNOT_DENY_SELF_MESSAGE,
+        });
+        expect(userRepository.update).not.toHaveBeenCalled();
+        expect(tokenService.revokeUserTokens).not.toHaveBeenCalled();
+      });
+    });
+
+    describe.each([
+      ['pending', { status: UserStatus.PENDING }],
+      ['approved', { status: UserStatus.APPROVED }],
+      ['already denied', { status: UserStatus.DENIED }],
+      ['another admin', { isAdmin: true }],
+    ])('when the user is %s', (_label, attrs) => {
+      const denied = { ...target, ...attrs, status: UserStatus.DENIED } as User;
+
+      beforeEach(() => {
+        userRepository.findOneBy.mockResolvedValueOnce({ ...target, ...attrs }).mockResolvedValueOnce(denied);
+        userRepository.update.mockResolvedValue({ affected: 1 });
+      });
+
+      it('sets the status to denied, then revokes every active token with admin_denied', async () => {
+        await service.denyUser(3, callerId);
+
+        expect(userRepository.update).toHaveBeenCalledWith({ id: 3 }, { status: UserStatus.DENIED });
+        expect(tokenService.revokeUserTokens).toHaveBeenCalledWith(3, RevokedReason.ADMIN_DENIED);
+        expect(userRepository.update.mock.invocationCallOrder[0]).toBeLessThan(
+          tokenService.revokeUserTokens.mock.invocationCallOrder[0],
+        );
+      });
+
+      it('returns the re-read row', async () => {
+        await expect(service.denyUser(3, callerId)).resolves.toBe(denied);
+      });
+    });
+
+    describe('when the bulk revoke fails', () => {
+      beforeEach(() => {
+        userRepository.findOneBy.mockResolvedValue(target);
+        userRepository.update.mockResolvedValue({ affected: 1 });
+        tokenService.revokeUserTokens.mockRejectedValue(new Error('revoke failed'));
+      });
+
+      it('rejects after the status update has been written', async () => {
+        await expect(service.denyUser(3, callerId)).rejects.toThrow('revoke failed');
+        expect(userRepository.update).toHaveBeenCalledWith({ id: 3 }, { status: UserStatus.DENIED });
       });
     });
   });

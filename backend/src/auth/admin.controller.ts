@@ -46,6 +46,22 @@ export class AdminController {
   }
 
   /**
+   * `POST /admin/users/:id/deny.json`. Denies any user but the caller (no
+   * body) and logs them out everywhere; answers `422 CANNOT_DENY_SELF` for
+   * the caller's own id.
+   * @param {number} id - The id of the user to deny.
+   * @param {AccessTokenPayload} caller - The authenticated admin (from the access token).
+   * @returns {Promise<object>} `{ user: { id, username, email, isAdmin, createdAt, status } }`.
+   */
+  @Post('users/:id/deny.json')
+  @HttpCode(HttpStatus.OK)
+  async deny(@Param('id', ParseIntPipe) id: number, @CurrentUser() caller: AccessTokenPayload): Promise<object> {
+    const user = await this.adminService.denyUser(id, caller.sub);
+
+    return { user: this.#serializeUser(user) };
+  }
+
+  /**
    * `POST /admin/users/:id/edit.json`. Updates a target user's username,
    * email, and/or password on the admin's behalf.
    * @param {number} id - The id of the user to update.
