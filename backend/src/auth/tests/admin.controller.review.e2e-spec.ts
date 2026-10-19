@@ -1,7 +1,10 @@
 import request from 'supertest';
 import { loginCookie, registerUser, useTestApp } from './auth.controller.e2e-test-support.js';
-import { expectValidationErrorBody } from './support/error-body.js';
+import { expectErrorBody, expectValidationErrorBody } from './support/error-body.js';
+import { ErrorCodes } from '../../core/error-codes.js';
 import { UserStatus } from '../entities/user.entity.js';
+
+const NOT_PENDING = { status: 422, code: ErrorCodes.USER_NOT_PENDING, message: 'Only pending users can be approved' };
 
 describe('AdminController review (e2e)', () => {
   const ctx = useTestApp({ adminGuard: true, registerDefaultUser: false });
@@ -105,6 +108,93 @@ describe('AdminController review (e2e)', () => {
         .expect(201);
 
       expect(response.body.user).toEqual(expect.objectContaining({ username: 'vader', status: UserStatus.DENIED }));
+    });
+  });
+
+  describe('POST /admin/users/:id/approve.json', () => {
+    function approve(username: string): request.Test {
+      return post(`/admin/users/${userId(username)}/approve.json`);
+    }
+
+    describe('for a pending user', () => {
+      let pendingCookie: string;
+      let response: request.Response;
+
+      beforeEach(async () => {
+        pendingCookie = await loginCookie(ctx.app, 'darth-pending');
+        await request(ctx.app.getHttpServer()).get('/protected').set('Cookie', [pendingCookie]).expect(401);
+
+        response = await approve('darth-pending');
+      });
+
+      it('answers 200 with the approved user', () => {
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
+          user: {
+            id: userId('darth-pending'),
+            username: 'darth-pending',
+            email: 'pending@example.com',
+            isAdmin: false,
+            createdAt: expect.any(String),
+            status: UserStatus.APPROVED,
+          },
+        });
+      });
+
+      it('stores the approved status', () => {
+        expect(userRow('darth-pending').status).toBe(UserStatus.APPROVED);
+      });
+
+      it('lets the existing access token through the gate', async () => {
+        await request(ctx.app.getHttpServer()).get('/protected').set('Cookie', [pendingCookie]).expect(200);
+      });
+    });
+
+    it.each([
+      ['obi-wan', UserStatus.APPROVED],
+      ['darth-denied', UserStatus.DENIED],
+    ])('answers 422 USER_NOT_PENDING for %s (%s), leaving the status unchanged', async (username, status) => {
+      const response = await approve(username);
+
+      expectErrorBody(response, NOT_PENDING);
+      expect(userRow(username).status).toBe(status);
+    });
+
+    it('answers 404 for an unknown user id', async () => {
+      const response = await post('/admin/users/999999/approve.json');
+
+      expectErrorBody(response, { status: 404, code: ErrorCodes.NOT_FOUND, message: 'User not found' });
+    });
+
+    it('never overwrites a deny landing between the lookup and the update', async () => {
+      const update = ctx.userRepo.update;
+      const spy = jest.spyOn(ctx.userRepo, 'update').mockImplementationOnce(async (criteria, partial) => {
+        userRow('darth-pending').status = UserStatus.DENIED;
+
+        return update(criteria, partial);
+      });
+
+      const response = await approve('darth-pending');
+
+      expect(spy).toHaveBeenCalled();
+      expectErrorBody(response, NOT_PENDING);
+      expect(userRow('darth-pending').status).toBe(UserStatus.DENIED);
+    });
+  });
+
+  describe('access control', () => {
+    const routes = ['approve.json'];
+
+    it.each(routes)('rejects an anonymous %s with 401', async (route) => {
+      await request(ctx.app.getHttpServer()).post(`/admin/users/${userId('darth-pending')}/${route}`).expect(401);
+    });
+
+    it.each(routes)('rejects a non-admin %s with 403, changing nothing', async (route) => {
+      await registerUser(ctx.app, { username: 'han', email: 'han@example.com' });
+      const cookie = await loginCookie(ctx.app, 'han');
+
+      await post(`/admin/users/${userId('darth-pending')}/${route}`, {}, cookie).expect(403);
+      expect(userRow('darth-pending').status).toBe(UserStatus.PENDING);
     });
   });
 });

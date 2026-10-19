@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, Repository } from 'typeorm';
 import { assertAnyFieldPresent } from './assert-any-field-present.js';
@@ -7,7 +7,11 @@ import { AdminUpdateUserDto } from './dto/admin-update-user.dto.js';
 import { User, UserStatus } from './entities/user.entity.js';
 import { PasswordResetService } from './password-reset.service.js';
 import { UserUpdateService } from './user-update.service.js';
+import { ErrorCodes } from '../core/error-codes.js';
 import { MailService } from '../mail/mail.service.js';
+
+// Message of the `422 USER_NOT_PENDING` answered when approving a user who is not `pending`.
+export const USER_NOT_PENDING_MESSAGE = 'Only pending users can be approved';
 
 /**
  * The admin tool's business logic: user lookup, and admin-triggered
@@ -142,6 +146,31 @@ export class AdminService {
 
     await this.authService.assertAvailableForUpdate(user.id, username, email);
     await this.userUpdateService.applyUserUpdate(user, dto);
+
+    return this.#findUserOrThrow(userId);
+  }
+
+  /**
+   * Approves a `pending` user through a conditional update
+   * (`WHERE id = ? AND status = 'pending'`), so a concurrent deny can never
+   * be overwritten. The user's sessions are untouched: an existing session
+   * passes the gate on its next request.
+   * @param {number} userId - The id of the user to approve.
+   * @returns {Promise<User>} The user's resulting (re-read) row.
+   * @throws {NotFoundException} When no user matches `userId`.
+   * @throws {UnprocessableEntityException} `USER_NOT_PENDING` when the user
+   *   is not (or no longer) `pending`; nothing is changed.
+   */
+  async approveUser(userId: number): Promise<User> {
+    const user = await this.#findUserOrThrow(userId);
+    const { affected } = await this.userRepository.update(
+      { id: user.id, status: UserStatus.PENDING },
+      { status: UserStatus.APPROVED },
+    );
+
+    if (!affected) {
+      throw new UnprocessableEntityException({ code: ErrorCodes.USER_NOT_PENDING, message: USER_NOT_PENDING_MESSAGE });
+    }
 
     return this.#findUserOrThrow(userId);
   }

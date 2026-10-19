@@ -1,7 +1,13 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { ILike } from 'typeorm';
+import { ErrorCodes } from '../../core/error-codes.js';
 import { MailService } from '../../mail/mail.service.js';
-import { AdminService } from '../admin.service.js';
+import { AdminService, USER_NOT_PENDING_MESSAGE } from '../admin.service.js';
 import { AuthService } from '../auth.service.js';
 import { User, UserStatus } from '../entities/user.entity.js';
 import { PasswordResetService } from '../password-reset.service.js';
@@ -10,12 +16,14 @@ import { UserUpdateService } from '../user-update.service.js';
 type UserRepoMock = {
   find: jest.Mock;
   findOneBy: jest.Mock;
+  update: jest.Mock;
 };
 
 function userRepoMock(): UserRepoMock {
   return {
     find: jest.fn(),
     findOneBy: jest.fn(),
+    update: jest.fn(),
   };
 }
 
@@ -89,6 +97,64 @@ describe('AdminService', () => {
             { username: ILike('%darth%'), status: UserStatus.PENDING },
             { email: ILike('%darth%'), status: UserStatus.PENDING },
           ],
+        });
+      });
+    });
+  });
+
+  describe('approveUser', () => {
+    const pending = { id: 3, username: 'padawan', status: UserStatus.PENDING } as User;
+    const approved = { ...pending, status: UserStatus.APPROVED } as User;
+
+    describe('when the user does not exist', () => {
+      beforeEach(() => {
+        userRepository.findOneBy.mockResolvedValue(null);
+      });
+
+      it('rejects with NotFoundException without updating anything', async () => {
+        await expect(service.approveUser(404)).rejects.toThrow(new NotFoundException('User not found'));
+        expect(userRepository.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('when the user is pending', () => {
+      beforeEach(() => {
+        userRepository.findOneBy.mockResolvedValueOnce(pending).mockResolvedValueOnce(approved);
+        userRepository.update.mockResolvedValue({ affected: 1 });
+      });
+
+      it('approves through a conditional update on the pending status', async () => {
+        await service.approveUser(3);
+
+        expect(userRepository.update).toHaveBeenCalledWith(
+          { id: 3, status: UserStatus.PENDING },
+          { status: UserStatus.APPROVED },
+        );
+      });
+
+      it('returns the re-read row', async () => {
+        await expect(service.approveUser(3)).resolves.toBe(approved);
+        expect(userRepository.findOneBy).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    describe.each([
+      ['approved', UserStatus.APPROVED],
+      ['denied', UserStatus.DENIED],
+      ['pending but concurrently denied', UserStatus.PENDING],
+    ])('when the user is %s (the conditional update affects no row)', (_label, status) => {
+      beforeEach(() => {
+        userRepository.findOneBy.mockResolvedValue({ ...pending, status });
+        userRepository.update.mockResolvedValue({ affected: 0 });
+      });
+
+      it('rejects with 422 USER_NOT_PENDING', async () => {
+        const error = await service.approveUser(3).catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(UnprocessableEntityException);
+        expect((error as UnprocessableEntityException).getResponse()).toEqual({
+          code: ErrorCodes.USER_NOT_PENDING,
+          message: USER_NOT_PENDING_MESSAGE,
         });
       });
     });

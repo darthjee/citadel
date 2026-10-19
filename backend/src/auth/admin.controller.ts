@@ -1,4 +1,4 @@
-import { Body, Controller, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { AdminService } from './admin.service.js';
 import { AdminUpdateUserDto } from './dto/admin-update-user.dto.js';
 import { SearchUsersDto } from './dto/search-users.dto.js';
@@ -29,6 +29,20 @@ export class AdminController {
    */
   constructor(adminService: AdminService) {
     this.adminService = adminService;
+  }
+
+  /**
+   * `POST /admin/users/:id/approve.json`. Approves a `pending` user (no
+   * body); answers `422 USER_NOT_PENDING` for any other status.
+   * @param {number} id - The id of the user to approve.
+   * @returns {Promise<object>} `{ user: { id, username, email, isAdmin, createdAt, status } }`.
+   */
+  @Post('users/:id/approve.json')
+  @HttpCode(HttpStatus.OK)
+  async approve(@Param('id', ParseIntPipe) id: number): Promise<object> {
+    const user = await this.adminService.approveUser(id);
+
+    return { user: this.#serializeUser(user) };
   }
 
   /**
