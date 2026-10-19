@@ -12,17 +12,21 @@ const AuthEvents = {
    *
    * @param {boolean} loggedIn - Whether a session is now active.
    * @param {boolean} [isAdmin] - Whether the current session belongs to an admin user.
+   * @param {boolean} [pending] - Whether the stored session belongs to a user still awaiting
+   *   admin approval (always paired with `loggedIn: false`).
    * @returns {void} Nothing.
    */
-  emit(loggedIn, isAdmin = false) {
-    window.dispatchEvent(new CustomEvent(AUTH_CHANGED_EVENT, { detail: { loggedIn, isAdmin } }));
+  emit(loggedIn, isAdmin = false, pending = false) {
+    window.dispatchEvent(new CustomEvent(AUTH_CHANGED_EVENT, {
+      detail: { loggedIn, isAdmin, pending },
+    }));
   },
 
   /**
    * Subscribe to auth-state changes.
    *
-   * @param {Function} handler - Called with the `CustomEvent` whose `detail.loggedIn` carries
-   *   the new auth state.
+   * @param {Function} handler - Called with the `CustomEvent` whose `detail` carries the new
+   *   auth state (`loggedIn`, `isAdmin`, `pending`).
    * @returns {void} Nothing.
    */
   subscribe(handler) {
