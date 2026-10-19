@@ -1,5 +1,5 @@
 import AccountsClient from '../../../../client/AccountsClient.js';
-import AuthEvents from '../../../../client/AuthEvents.js';
+import AuthStatus from '../../../../client/AuthStatus.js';
 import LoginModalEvents from '../../../../client/LoginModalEvents.js';
 import AuthorizationRequestPoller from '../../../../utils/polling/AuthorizationRequestPoller.js';
 import { validateRegistration, validateResetPassword } from '../../../../utils/validation/formValidators.js';
@@ -31,7 +31,8 @@ const DEVICE_REJECTION_PANELS = new Map([
  * Controller for the login modal: owns mode state and per-mode submission. Password mode
  * authenticates via {@link AccountsClient.login}; Register mode validates with
  * {@link validateRegistration}'s rules then calls {@link AccountsClient.register} — both converge
- * on the shared success handler that closes the modal and redirects home. Recover mode calls
+ * on the shared success handler that re-checks the account status, closes the modal and redirects
+ * home. Recover mode calls
  * {@link AccountsClient.recover} and always shows the neutral "check your email" panel;
  * Set-new-password mode validates with {@link validateResetPassword}'s rules then calls
  * {@link AccountsClient.resetPassword} and shows a success panel — neither closes the modal,
@@ -129,7 +130,8 @@ export default class LoginModalController {
     this.setSubmitError(null);
 
     try {
-      this.#handleSuccess(await this.client.login(fields));
+      await this.client.login(fields);
+      await this.#handleSuccess();
     } catch (error) {
       this.setSubmitError(error.message);
     }
@@ -157,7 +159,8 @@ export default class LoginModalController {
     this.setSubmitError(null);
 
     try {
-      this.#handleSuccess(await this.client.register(fields));
+      await this.client.register(fields);
+      await this.#handleSuccess();
     } catch (error) {
       this.setSubmitError(error.message);
     }
@@ -239,7 +242,7 @@ export default class LoginModalController {
 
     this.poller = new AuthorizationRequestPoller({
       uuid, pollToken, expiresAt, client: this.client,
-      onApproved: (result) => this.#handleSuccess(result),
+      onApproved: () => this.#handleDeviceApproved(),
       onRejected: (status) => this.#handleDeviceRejection(status),
     });
     this.poller.start();
@@ -258,16 +261,31 @@ export default class LoginModalController {
   }
 
   /**
-   * Shared success path for Password / Register / approved-device flows: the refresh token is
-   * already persisted by the `AccountsClient` call, so announce the new logged-in auth state,
-   * close the modal, and redirect home.
+   * Approved-device outcome: run the shared success handler. The poller does not await its
+   * callbacks, so a failing status re-check is caught here and surfaced as a submit error
+   * instead of escaping as an unhandled rejection.
    *
-   * @param {{user: {isAdmin: boolean}}} result - The successful login/register/approval
-   *   response.
-   * @returns {void} Nothing.
+   * @returns {Promise<void>} Resolves once the success handling (or its failure) finishes.
    */
-  #handleSuccess(result) {
-    AuthEvents.emit(true, result.user.isAdmin);
+  async #handleDeviceApproved() {
+    try {
+      await this.#handleSuccess();
+    } catch (error) {
+      this.setSubmitError(error.message);
+    }
+  }
+
+  /**
+   * Shared success path for Password / Register / approved-device flows: the refresh token is
+   * already persisted by the `AccountsClient` call, so re-check the account status through
+   * {@link AuthStatus.refresh} (which announces logged-in, or pending for a user awaiting
+   * approval), then close the modal and redirect home. A failing re-check rejects, before the
+   * modal closes.
+   *
+   * @returns {Promise<void>} Resolves once the status is announced and the modal is closed.
+   */
+  async #handleSuccess() {
+    await AuthStatus.refresh(this.client);
     LoginModalEvents.close();
     redirectHome();
   }
