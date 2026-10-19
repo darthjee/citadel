@@ -1,6 +1,6 @@
 import type { TableColumn } from 'typeorm';
-import { AuthAddRefreshTokensRevokedReason20261018120012 } from '../migrations/20261018120012-auth-add-refresh-tokens-revoked-reason.js';
 import { asQueryRunner, fakeQueryRunner } from './fake-query-runner.js';
+import { AuthAddRefreshTokensRevokedReason20261018120012 } from '../migrations/20261018120012-auth-add-refresh-tokens-revoked-reason.js';
 
 describe('AuthAddRefreshTokensRevokedReason20261018120012', () => {
   const migration = new AuthAddRefreshTokensRevokedReason20261018120012();

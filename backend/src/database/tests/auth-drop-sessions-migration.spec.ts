@@ -1,6 +1,6 @@
 import type { Table, TableIndex } from 'typeorm';
-import { AuthDropSessions20261018120013 } from '../migrations/20261018120013-auth-drop-sessions.js';
 import { asQueryRunner, fakeQueryRunner } from './fake-query-runner.js';
+import { AuthDropSessions20261018120013 } from '../migrations/20261018120013-auth-drop-sessions.js';
 
 describe('AuthDropSessions20261018120013', () => {
   const migration = new AuthDropSessions20261018120013();

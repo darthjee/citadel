@@ -1,6 +1,6 @@
 import type { TableColumn, TableIndex } from 'typeorm';
-import { AuthAddRefreshTokensSession20261018120011 } from '../migrations/20261018120011-auth-add-refresh-tokens-session.js';
 import { asQueryRunner, fakeQueryRunner } from './fake-query-runner.js';
+import { AuthAddRefreshTokensSession20261018120011 } from '../migrations/20261018120011-auth-add-refresh-tokens-session.js';
 
 describe('AuthAddRefreshTokensSession20261018120011', () => {
   const migration = new AuthAddRefreshTokensSession20261018120011();
