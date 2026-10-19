@@ -2,23 +2,49 @@ import ApiClient from './ApiClient.js';
 import pickDefined from './pickDefined.js';
 
 /**
- * HTTP client for admin-only requests (user lookup, recovery-link generation, and forced
- * recovery emails). Every route this hits requires the caller to be an admin — a `403`
+ * HTTP client for admin-only requests (user lookup, approval review, recovery-link
+ * generation, and forced recovery emails). Every route this hits requires the caller to be an admin — a `403`
  * `ApiError` means the current session is not an admin, which callers should treat as "hide the
  * UI / redirect away". Unlike {@link module:client/AccountsClient}, none of these touch
  * `AuthSession` — none of them affect the caller's own session.
  */
 const AdminClient = {
   /**
-   * Search user accounts by username/email.
+   * Search user accounts by username/email, optionally filtered by approval status. `q` and
+   * `status` are only included in the request body when defined.
    *
    * @param {string} [q] - Search term matched against `username`/`email`; omit to list every
    *   account.
+   * @param {('pending'|'approved'|'denied')} [status] - Approval status to filter by; omit to
+   *   list accounts of every status.
    * @returns {Promise<{users: Array<{id: number, username: string, email: string,
-   *   isAdmin: boolean, createdAt: string}>}>} The matching accounts.
+   *   isAdmin: boolean, status: string, createdAt: string}>, currentUserId: number}>} The
+   *   matching accounts, plus the calling admin's own user id.
    */
-  async searchUsers(q) {
-    return ApiClient.postJson('/admin/users/search.json', { q });
+  async searchUsers(q, status) {
+    return ApiClient.postJson('/admin/users/search.json', pickDefined({ q, status }));
+  },
+
+  /**
+   * Approve a pending user account.
+   *
+   * @param {number} userId - The target user's numeric id.
+   * @returns {Promise<{user: {id: number, username: string, email: string, isAdmin: boolean,
+   *   status: string, createdAt: string}}>} The updated account.
+   */
+  async approveUser(userId) {
+    return ApiClient.postJson(`/admin/users/${userId}/approve.json`, {});
+  },
+
+  /**
+   * Deny a user account; the server also revokes every session the user holds.
+   *
+   * @param {number} userId - The target user's numeric id.
+   * @returns {Promise<{user: {id: number, username: string, email: string, isAdmin: boolean,
+   *   status: string, createdAt: string}}>} The updated account.
+   */
+  async denyUser(userId) {
+    return ApiClient.postJson(`/admin/users/${userId}/deny.json`, {});
   },
 
   /**
