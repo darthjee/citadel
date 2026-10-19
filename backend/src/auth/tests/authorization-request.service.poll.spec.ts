@@ -4,7 +4,7 @@ import {
   queryBuilderMock,
   useAuthorizationRequestServiceContext,
 } from './authorization-request.service.test-support.js';
-import { User } from '../entities/user.entity.js';
+import { User, UserStatus } from '../entities/user.entity.js';
 
 describe('AuthorizationRequestService', () => {
   const ctx = useAuthorizationRequestServiceContext();
@@ -87,7 +87,7 @@ describe('AuthorizationRequestService', () => {
     });
 
     describe('when the request is approved', () => {
-      const user = { id: 1, username: 'darthjee', email: 'darthjee@example.com' } as User;
+      const user = { id: 1, username: 'darthjee', email: 'darthjee@example.com', status: UserStatus.APPROVED } as User;
 
       beforeEach(() => {
         ctx.authorizationRequestRepository.findOneBy.mockResolvedValue({ ...baseRow, status: 'approved' });
@@ -132,6 +132,61 @@ describe('AuthorizationRequestService', () => {
             status: 'approved',
             authResult: { user, accessToken: 'jwt', refreshToken: 'rt' },
           });
+        });
+      });
+
+      describe.each([UserStatus.PENDING, UserStatus.DENIED])('and this poll wins, but the requester is %s', (status) => {
+        let builders: ReturnType<typeof queryBuilderMock>[];
+
+        beforeEach(() => {
+          builders = [queryBuilderMock({ affected: 1 }), queryBuilderMock({ affected: 1 })];
+          ctx.authorizationRequestRepository.createQueryBuilder
+            .mockReturnValueOnce(builders[0])
+            .mockReturnValueOnce(builders[1]);
+          ctx.userRepository.findOneBy.mockResolvedValue({ ...user, status });
+        });
+
+        it('returns { status: "denied" } with no credentials', async () => {
+          await expect(ctx.service.poll('uuid-1', 'poll-token')).resolves.toEqual({ status: 'denied' });
+        });
+
+        it('does not mint a session nor emit authorization-request.logged', async () => {
+          await ctx.service.poll('uuid-1', 'poll-token');
+
+          expect(ctx.tokenService.issueTokens).not.toHaveBeenCalled();
+          expect(ctx.eventEmitter.emit).not.toHaveBeenCalled();
+        });
+
+        it('reloads the requester by the row userId', async () => {
+          await ctx.service.poll('uuid-1', 'poll-token');
+
+          expect(ctx.userRepository.findOneBy).toHaveBeenCalledWith({ id: 1 });
+        });
+
+        it('moves the request logged -> denied with a conditional UPDATE after the claim', async () => {
+          await ctx.service.poll('uuid-1', 'poll-token');
+
+          expect(builders[0].where).toHaveBeenCalledWith('uuid = :uuid AND status = :status', {
+            uuid: 'uuid-1',
+            status: 'approved',
+          });
+          expect(builders[1].set).toHaveBeenCalledWith({ status: 'denied', resolvedAt: expect.any(Function) });
+          expect(builders[1].set.mock.calls[0][0].resolvedAt()).toBe('CURRENT_TIMESTAMP');
+          expect(builders[1].where).toHaveBeenCalledWith('uuid = :uuid AND status = :status', {
+            uuid: 'uuid-1',
+            status: 'logged',
+          });
+        });
+      });
+
+      describe('and the requester no longer exists', () => {
+        beforeEach(() => {
+          ctx.userRepository.findOneBy.mockResolvedValue(null);
+        });
+
+        it('returns { status: "logged" } without minting a session', async () => {
+          await expect(ctx.service.poll('uuid-1', 'poll-token')).resolves.toEqual({ status: 'logged' });
+          expect(ctx.tokenService.issueTokens).not.toHaveBeenCalled();
         });
       });
 
