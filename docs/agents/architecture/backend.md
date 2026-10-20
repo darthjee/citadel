@@ -75,7 +75,6 @@ for the rule) — only Auth owns tables today (Mail has no HTTP surface and no e
 |---|---|---|
 | `auth_users` | Auth | |
 | `auth_refresh_tokens` | Auth | |
-| `auth_sessions` | Auth | |
 | `auth_authorization_requests` | Auth | `user_id` is a logical FK (no physical FK, no cross-module JOIN) — `NULL` when the request's username didn't resolve to a real user |
 | `auth_account_edit_lockouts` | Auth | `user_id` is a logical FK (no physical FK, no cross-module JOIN), unique — one row per user, upserted in place |
 
