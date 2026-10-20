@@ -25,8 +25,8 @@ frontend/assets/js/
     AppController.js          # resolves the current route, renders the matching page
     common/
       header/                 # Header.jsx + controller/helper/hook — Login/Logout nav
-      awaitingApproval/       # AwaitingApprovalGate.jsx, AwaitingApproval.jsx + controller/
-                              #   helper/hooks/useWindowFocusRecheck.js — pending-account view
+      awaitingApproval/       # AwaitingApprovalGate.jsx, AwaitingApproval.jsx + controllers/,
+                              #   helpers/, hooks/useWindowFocusRecheck.js — pending-account view
       loginModal/             # LoginModal.jsx — route-independent, opened via LoginModalEvents
                               #   (controllers/LoginErrorMessages.js maps error codes to text)
       ModalRedirect.jsx       # #/login, #/register → open the modal in that mode
@@ -125,7 +125,8 @@ the shared `client/AuthEvents.js` bus (via `useAuthEffect`, confirmed at mount t
 `HeaderController#checkStatus`, which delegates to `AuthStatus.refresh`) rather than only reading
 `AuthSession.isLoggedIn()` once at render time, so it reacts to any auth-state change (login,
 logout, or a winning device-authorization poll) independently of a page redirect. It shows a
-Login nav link when logged out, or a Logout action when logged in. Logging out calls
+Login nav link when logged out, a Logout action when logged in, and no auth links while the
+session is pending approval. Logging out calls
 `AccountsClient.logout` and redirects home regardless of whether the request succeeded, since
 `AccountsClient.logout` already clears `AuthSession` unconditionally.
 
@@ -134,8 +135,9 @@ Login nav link when logged out, or a Logout action when logged in. Logging out c
 The frontend side of [User approval](../modules/auth/user-approval.md):
 
 - **`pending` on the auth bus**: `AuthEvents.emit(loggedIn, isAdmin = false, pending = false)`;
-  the event `detail` carries `pending`. While pending, `loggedIn` and `isAdmin` are `false`, so
-  the header shows no logged-in menu.
+  the event `detail` carries `pending`. While pending, `loggedIn` and `isAdmin` are `false`, and
+  the header (`HeaderHelper`) renders **no auth links at all** (neither Login nor the logged-in
+  menu); Log out is reachable from the awaiting-approval view.
 - **`client/AuthStatus.js`**: `AuthStatus.refresh(client = AccountsClient)` is the single place
   that reads the stored refresh token, calls `status.json` and emits the result. Every re-check
   (header mount, after login/register, the awaiting-approval view) goes through it:
@@ -147,9 +149,10 @@ The frontend side of [User approval](../modules/auth/user-approval.md):
   | anything else (denied, revoked, expired, unknown) | cleared (`AuthSession.clear()`) | `(false, false, false)` |
   | — (no stored token) | — (no request) | `(false, false, false)` |
 
-- **Re-check after login and register**: `LoginModalController`'s shared success handler and
-  `RegisterController` call `AuthStatus.refresh` instead of emitting a logged-in state from the
-  response, so `status.json` is the single source of the status.
+- **Re-check after login and register**: `LoginModalController`'s shared success handler (used
+  by the Password, Register and approved-device modes) calls `AuthStatus.refresh` instead of
+  emitting a logged-in state from the response, so `status.json` is the single source of the
+  status.
 - **Awaiting-approval view** (`components/common/awaitingApproval/`): `Header.jsx` wraps the
   page content in `AwaitingApprovalGate`, which renders `AwaitingApproval` instead of the
   children while `pending`. The view shows **"Awaiting approval"**, **"Your account is waiting
@@ -170,8 +173,8 @@ The frontend side of [User approval](../modules/auth/user-approval.md):
   `window.confirm('Deny this user? This is final and logs them out everywhere.')` — cancelling
   sends nothing. `AdminClient.searchUsers(q, status)` resolves `{ users, currentUserId }`;
   `approveUser(id)` / `denyUser(id)` resolve `{ user }`, and a successful action replaces the
-  row with the returned user. Errors (`422`, `404`, a demoted admin's `403`) show their
-  `error.message` in the row's result area (`rowResults`); the existing per-row recovery and
+  row with the returned user. A `403` (e.g. a demoted admin) redirects home; any other error
+  (`422`, `404`, …) shows its `error.message` in the row's result area (`rowResults`); the existing per-row recovery and
   edit actions stay available for every status.
 
 ## API errors
