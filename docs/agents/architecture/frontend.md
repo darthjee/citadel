@@ -25,7 +25,10 @@ frontend/assets/js/
     AppController.js          # resolves the current route, renders the matching page
     common/
       header/                 # Header.jsx + controller/helper/hook — Login/Logout nav
+      awaitingApproval/       # AwaitingApprovalGate.jsx, AwaitingApproval.jsx + controller/
+                              #   helper/hooks/useWindowFocusRecheck.js — pending-account view
       loginModal/             # LoginModal.jsx — route-independent, opened via LoginModalEvents
+                              #   (controllers/LoginErrorMessages.js maps error codes to text)
       ModalRedirect.jsx       # #/login, #/register → open the modal in that mode
       forms/                  # shared account-edit form pieces: helpers/ (JSX),
                               #   controllers/AccountEditFormController.js (base class for
@@ -35,9 +38,11 @@ frontend/assets/js/
     resources/
       home/pages/Home.jsx
       accounts/pages/          # AuthorizationRequests ("My account"), ResetPasswordLanding
-      admin/pages/AdminUsers.jsx
+      admin/pages/             # AdminUsers.jsx (search, status filter, approve/deny via
+                               #   users/ApproveUserButton.jsx, users/DenyUserButton.jsx),
+                               #   AdminUserEdit.jsx
   client/                      # AccountsClient, AdminClient, ApiClient, ApiError,
-                                #   AuthSession, AuthEvents, LoginModalEvents,
+                                #   AuthSession, AuthEvents, AuthStatus, LoginModalEvents,
                                 #   pickDefined.js (drops undefined keys from request bodies)
   utils/
     routing/                   # Router, Route, HashRouteResolver
@@ -94,7 +99,10 @@ session-expired handling above, or from `components/common/ModalRedirect.jsx`, w
 right mode) and driven by `LoginModalController`/`useLoginModal`/`useDeviceCountdown`. Its modes:
 
 - **Password** / **Register** — the classic username/password flows; both converge on the same
-  success path (close the modal, redirect home).
+  success path: re-check `status.json` through `AuthStatus.refresh` (see "User approval" below),
+  close the modal, redirect home. A `403 USER_DENIED` login shows **"This account has been
+  denied access."** (`LoginErrorMessages.forLogin` maps `error.code` to a frontend message,
+  falling back to `error.message` for other codes).
 - **Recover** / **Set-new-password** — `AccountsClient.recover`/`resetPassword`; the modal stays
   open on a neutral/success result panel instead of redirecting.
 - **Authorize-with-logged-device** — drives `AccountsClient.createAuthorizationRequest` then
@@ -112,14 +120,59 @@ The approving device reviews and resolves open requests from the "My account" pa
 `denyAuthorizationRequest` — see `docs/agents/modules/auth.md` for the backend contract behind
 all of this.
 
-`components/common/header/Header.jsx` keeps `loggedIn`/`isAdmin` state in sync with the shared
-`client/AuthEvents.js` bus (via `useAuthEffect`, confirmed at mount time through
-`HeaderController#checkStatus`, which calls `AccountsClient.status`) rather than only reading
+`components/common/header/Header.jsx` keeps `loggedIn`/`isAdmin`/`pending` state in sync with
+the shared `client/AuthEvents.js` bus (via `useAuthEffect`, confirmed at mount time through
+`HeaderController#checkStatus`, which delegates to `AuthStatus.refresh`) rather than only reading
 `AuthSession.isLoggedIn()` once at render time, so it reacts to any auth-state change (login,
 logout, or a winning device-authorization poll) independently of a page redirect. It shows a
 Login nav link when logged out, or a Logout action when logged in. Logging out calls
 `AccountsClient.logout` and redirects home regardless of whether the request succeeded, since
 `AccountsClient.logout` already clears `AuthSession` unconditionally.
+
+## User approval
+
+The frontend side of [User approval](../modules/auth/user-approval.md):
+
+- **`pending` on the auth bus**: `AuthEvents.emit(loggedIn, isAdmin = false, pending = false)`;
+  the event `detail` carries `pending`. While pending, `loggedIn` and `isAdmin` are `false`, so
+  the header shows no logged-in menu.
+- **`client/AuthStatus.js`**: `AuthStatus.refresh(client = AccountsClient)` is the single place
+  that reads the stored refresh token, calls `status.json` and emits the result. Every re-check
+  (header mount, after login/register, the awaiting-approval view) goes through it:
+
+  | `status.json` answer | Stored refresh token | Emitted |
+  |---|---|---|
+  | `{ loggedIn: true, … }` | kept | `(true, isAdmin, false)` |
+  | `{ loggedIn: false, …, status: "pending" }` | **kept**, so an approval is picked up without a new login | `(false, false, true)` |
+  | anything else (denied, revoked, expired, unknown) | cleared (`AuthSession.clear()`) | `(false, false, false)` |
+  | — (no stored token) | — (no request) | `(false, false, false)` |
+
+- **Re-check after login and register**: `LoginModalController`'s shared success handler and
+  `RegisterController` call `AuthStatus.refresh` instead of emitting a logged-in state from the
+  response, so `status.json` is the single source of the status.
+- **Awaiting-approval view** (`components/common/awaitingApproval/`): `Header.jsx` wraps the
+  page content in `AwaitingApprovalGate`, which renders `AwaitingApproval` instead of the
+  children while `pending`. The view shows **"Awaiting approval"**, **"Your account is waiting
+  for an administrator's approval."** and two buttons: **Check again**
+  (`AwaitingApprovalController#checkAgain` → `AuthStatus.refresh`; on failure **"Could not
+  check your account status, please try again."**) and **Log out** (the header's logout).
+  `useWindowFocusRecheck` re-checks on every window **focus** while the view is shown — **no
+  timer polling**, since `status.json` is never cached and hits the DB. Because `status.json`
+  is passive, several open tabs each re-check on their own focus without logging each other
+  out. A re-check answering `loggedIn: true` swaps back to the app with no new login; an
+  anonymous answer (denied, expired) switches to the normal logged-out state, without saying the
+  account was denied.
+- **Admin users page** (`components/resources/admin/pages/AdminUsers.jsx`, its controller and
+  helper): a **status filter** next to the search box (`All` sends no `status`; `Pending`,
+  `Approved`, `Denied`), a **Status** column, an **Approve** button on `pending` rows only
+  (`users/ApproveUserButton.jsx`) and a **Deny** button (`users/DenyUserButton.jsx`) hidden on
+  the admin's own row (`user.id === currentUserId`) and on `denied` rows, behind
+  `window.confirm('Deny this user? This is final and logs them out everywhere.')` — cancelling
+  sends nothing. `AdminClient.searchUsers(q, status)` resolves `{ users, currentUserId }`;
+  `approveUser(id)` / `denyUser(id)` resolve `{ user }`, and a successful action replaces the
+  row with the returned user. Errors (`422`, `404`, a demoted admin's `403`) show their
+  `error.message` in the row's result area (`rowResults`); the existing per-row recovery and
+  edit actions stay available for every status.
 
 ## API errors
 

@@ -105,3 +105,68 @@ attack.
   alongside the cookie without a security review.
 - **Allowlist changes are trust changes**: `CITADEL_PLACEHOLDER_ALLOWED_ORIGINS`/`FRONTEND_BASE_URL` define
   both CORS and CSRF trust (see `docs/agents/environment-variables.md`).
+
+## Session-lookup gate
+
+`JwtGuard` (`backend/src/core/jwt.guard.ts`) does not trust the access token's claims alone: on
+every non-`@Public()` request it resolves the token's `sid` claim to an active session of an
+`approved` user through the `SESSION_LOOKUP` port, and builds `request.user` (including
+`isAdmin`) from the DB row. Logout, password reset, replay detection, admin deny and admin
+demotion therefore take effect on the **next request**, not after the access-token TTL. See
+[Auth → Session-lookup gate](../modules/auth.md#session-lookup-gate) for the mechanics and
+[User approval](../modules/auth/user-approval.md) for the status rules.
+
+### Non-disclosure
+
+- Every gate rejection (bad signature, expiry, malformed claims, no `sid`, revoked/expired
+  session, another user's session, a `pending` or `denied` user) answers the **identical**
+  `401 Invalid or expired access token`, byte-for-byte apart from `timestamp`. A DB error stays
+  a `500`, never a misleading `401`.
+- A **denied** account looks like a logged-out or unknown one everywhere, except login **after a
+  correct password** (`403 USER_DENIED`). A wrong password keeps the `401`, so the status cannot
+  be probed without the password.
+- `status.json` reveals only `pending`, and only to the holder of that user's own valid session.
+  A denied user's `status.json` is byte-for-byte the anonymous answer.
+- Password recovery gives the same response and caller-visible side effects for every status:
+  `recover.json` always answers `200 { sent: true }` (a denied user is treated like an unknown
+  email), and a denied user's reset token fails with the same `400` as an unknown one, checked
+  before any password hashing. **Response time is not equalised** for `recover.json`: the
+  known-user path inserts a token and fires an event that the unknown/denied path skips. That
+  gap predates the feature; denied simply sits on the unknown side.
+- The device-authorization poll answers a non-approved requester with the same
+  `{ "status": "denied" }` as a request the approver denied. `create` is identical for every
+  status.
+- The auth endpoints' `user` payload never carries `status`; only admins see it.
+- Registering with a denied account's username or email gets the existing `409`, which reveals
+  nothing registration does not already reveal for any account.
+
+### Races
+
+1. **Approve vs deny on the same user.** Approve is a conditional update
+   (`WHERE id = ? AND status = 'pending'`), so it never overwrites a deny: a late approve gets
+   `422 USER_NOT_PENDING`; a late deny succeeds and wins.
+2. **A rotation or winning device poll racing deny's bulk revoke.** Either can insert a new
+   active refresh-token row right after deny revoked every active one. Three layers close it:
+   `refresh.json` re-checks the user and revokes a denied user's token with `admin_denied`; the
+   poll re-checks the requester right before minting and moves the request `logged → denied`;
+   and the gate requires `approved` regardless.
+3. **Concurrent refreshes of one token / logout with a stale token.** Rotation is a
+   single-winner conditional revoke in one transaction with the insert, and logout revokes the
+   whole session, so a session never forks into two active chains that outlive a logout or a
+   deny.
+4. **Deny's two writes.** The status update and the bulk revoke are separate writes. If the
+   revoke fails, the gate still answers `401`, the `refresh.json` / `status.json` re-checks
+   revoke leftovers, and a retried deny (allowed on an already denied user) revokes the rest.
+5. **Approval with several tabs open.** No race: the session is untouched, and each tab
+   re-checks `status.json` (which is passive) on window focus.
+
+### Accepted risks and costs
+
+- **One admin can deny every other admin.** Only self-deny is refused, and there is no un-deny
+  through the application: recovering from a rogue admin needs a DB change.
+- **One DB lookup per authenticated request.** The gate runs a single indexed query on
+  `auth_refresh_tokens.session_uuid` (joined to `auth_users` by primary key) on every
+  non-`@Public()` request — the price of immediate revocation.
+- **Denied accounts keep their username and email** (the row is never deleted).
+- **The approval flag is boot-time only.** Changing it needs a restart; it never affects
+  existing users.
