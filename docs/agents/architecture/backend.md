@@ -9,7 +9,8 @@ one — must follow. See `docs/agents/modules/auth.md` for the Auth module itsel
 - NestJS (Express platform adapter) + TypeScript, strict mode, ES Modules
   (`"module": "NodeNext"`, `.js` extensions required on every relative import path, per
   Node's ESM resolution rules)
-- TypeORM (entity/repository ORM + CLI migrations) + MySQL 8, connection pool capped at
+- TypeORM (entity/repository ORM + CLI migrations) + MySQL 9.3 (the `mysql:9.3.0` image used in
+  dev, tests and CI), connection pool capped at
   `poolSize: 5` (per ward's precedent and the issue's performance considerations)
 - Jest + `@swc/jest` (transform) + `supertest` (e2e HTTP assertions) + `@nestjs/testing`
 - ESLint (flat config, `typescript-eslint` + the same `complexity`/`jsdoc`/`import`/
@@ -237,8 +238,9 @@ once (via `ConfigService`) and injected. See `docs/agents/contributing.md`'s DI 
 
 ## Testing
 
-No live database in CI yet (`backend_tests` has no `cimg/mysql` service container) — specs inject
-mocked/fake TypeORM repositories rather than hitting MySQL:
+`yarn test` / `yarn coverage` (CI: `backend_tests`) stay database-free — those specs inject
+mocked/fake TypeORM repositories rather than hitting MySQL. A separate integration suite runs
+against a real MySQL:
 
 - **Unit specs** (`*.spec.ts`): plain `jest.fn()`-based repository doubles, service instantiated
   directly (no `TestingModule` needed when there's no DI graph to exercise).
@@ -256,6 +258,19 @@ mocked/fake TypeORM repositories rather than hitting MySQL:
   (`NestFactory.createApplicationContext`), not a bare `Test.createTestingModule` — the loader's
   internals (module scanning) aren't fully wired by the lightweight testing container.
 
-Add a `cimg/mysql` service to `.circleci/config.yml` (see `docs/agents/architecture/infra.md`)
-when the first spec actually needs a real database (e.g. testing a TypeORM migration itself, or
-a query too complex to fake convincingly).
+- **Integration specs** (`*.integration-spec.ts`): run by `yarn test:integration` (its own
+  `jest.integration.config.ts`, `--runInBand`, no coverage) against the throwaway
+  `citadel_placeholder_mysql_test` database (`mysql:9.3.0` on `tmpfs`; CI job
+  `backend_integration`) — always via
+  `docker-compose run --rm citadel_placeholder_tests yarn test:integration`, never on the host.
+  The connection comes only from `CITADEL_PLACEHOLDER_TEST_MYSQL_*` (never the dev
+  `CITADEL_PLACEHOLDER_MYSQL_*` vars; the harness refuses to run without
+  `CITADEL_PLACEHOLDER_TEST_MYSQL_NAME`, since it drops every table). The shared harness lives in
+  `src/database/tests/integration/`: `test-data-source.ts` (`createTestDataSource()` — retries for
+  up to ~60 s while MySQL boots —, `resetDatabase()`, `runMigrationsUpTo()`) and
+  `schema-inspection.ts` (`INFORMATION_SCHEMA` helpers). Build the service under test directly
+  with the real `Repository`s from the test `DataSource`. Write one for migrations (seed rows in
+  the pre-migration shape, then run the target), transactions/rollbacks, races and
+  query-builder SQL; everything else stays a fake-backed unit/e2e spec. **Every new migration
+  must be added to the harness's `MIGRATIONS` list** (TypeORM's `dist/**` globs don't resolve
+  under `@swc/jest`) — `migrations-registry.integration-spec.ts` fails otherwise.

@@ -14,6 +14,7 @@
     "migration:revert": "typeorm-ts-node-esm migration:revert -d src/database/data-source.ts",
     "test": "jest",
     "coverage": "jest --coverage",
+    "test:integration": "jest --config jest.integration.config.ts --runInBand",
     "lint": "eslint src",
     "lint_fix": "eslint src --fix"
   },

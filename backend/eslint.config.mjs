@@ -152,7 +152,7 @@ export default [
     },
   },
   {
-    files: ['**/*.spec.ts', '**/*.e2e-spec.ts'],
+    files: ['**/*.spec.ts', '**/*.e2e-spec.ts', '**/*.integration-spec.ts'],
     languageOptions: {
       globals: {
         ...globals.jest,

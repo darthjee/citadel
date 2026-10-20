@@ -23,13 +23,14 @@ that step runs `circleci-agent step halt` before `checkout`, so the job ends gre
 anything and the jobs that depend on it still run. Only the template repo sets this flag.
 Projects built from it leave it unset and release normally (see
 `docs/agents/environment-variables.md` §4). One consequence for the template: its image releases
-are skipped too, so `backend_tests`/`backend_checks` depend on the
+are skipped too, so `backend_tests`/`backend_integration`/`backend_checks` depend on the
 `circleci_citadel_placeholder-base` tag pinned in `.circleci/config.yml` already being on Docker
 Hub. To bump that image version in the template, unset the flag for that release.
 `FORCE_IMAGE_BUILD` does not override it.
 
 ```
 release-circleci_citadel_placeholder-base(-arm64) ─┬─ backend_tests ──┐
+                                        ├─ backend_integration ─┤
                                         └─ backend_checks ─┤
                                           jasmine ─────────┼─ build-and-release ─────────────────┐
                                     frontend-checks ───────┤                                      │
@@ -47,8 +48,9 @@ jasmine ───────┘
 release-citadel_placeholder-base(-arm64)  — published for local/dev use; nothing in this workflow requires it
 ```
 
-The five boxes feeding `build-and-release`/`upload_proxy_files`/`upload_fe_files`
-(`backend_tests`, `backend_checks`, `jasmine`, `frontend-checks`, `proxy_extension_tests`) are
+The six boxes feeding `build-and-release`/`upload_proxy_files`/`upload_fe_files`
+(`backend_tests`, `backend_integration`, `backend_checks`, `jasmine`, `frontend-checks`,
+`proxy_extension_tests`) are
 each required directly by all three of those jobs — the diagram only draws the edges once to
 stay readable. `coverage-final` requires only `backend_tests` and `jasmine` (the two jobs that
 upload partial Codacy coverage) and isn't required by anything else — it doesn't gate the release
@@ -106,7 +108,7 @@ holds transitively.
 
 `release-citadel_placeholder-base(-arm64)` and `release-circleci_citadel_placeholder-base(-arm64)` don't need a direct
 `build-and-release`/`release` dependency either: `release-circleci_citadel_placeholder-base(-arm64)` is
-already required by `backend_tests`/`backend_checks`, both of which run before
+already required by `backend_tests`/`backend_integration`/`backend_checks`, all of which run before
 `build-and-release`/`release` in the graph, so they're safely ordered transitively too.
 `release-citadel_placeholder-base(-arm64)` (the dev-only base image) isn't required by anything in this
 workflow at all — nothing downstream depends on it being fresh.
@@ -116,6 +118,7 @@ workflow at all — nothing downstream depends on it being fresh.
 | Job | Image/Executor | Filter | Purpose |
 |-----|-----------------|--------|---------|
 | `backend_tests` | `darthjee/circleci_citadel_placeholder-base:0.1.0` | every push | `yarn_project` instance (`dir: backend`, `script: coverage`, `upload_coverage: true`): backend test suite + coverage; uploads a partial Codacy coverage report afterward (best-effort, non-blocking) |
+| `backend_integration` | `darthjee/circleci_citadel_placeholder-base:0.1.0` + `mysql:9.3.0` service container | every push | Standalone job (not a `yarn_project` instance, since it needs a second image): `setup_project` (`dir: backend`), then `npm run test:integration` — the `*.integration-spec.ts` suite against a throwaway MySQL database (`citadel_placeholder_test`, reached at `127.0.0.1:3306` via the job-level `CITADEL_PLACEHOLDER_TEST_MYSQL_*` env). No wait step (the suite's Jest `globalSetup` retries the connection) and no coverage upload |
 | `backend_checks` | `darthjee/circleci_citadel_placeholder-base:0.1.0` | every push | `yarn_project` instance (`dir: backend`, `script: lint`): backend ESLint |
 | `jasmine` | `darthjee/circleci_node:0.2.1` | every push | `yarn_project` instance (`dir: frontend`, `script: coverage`, `upload_coverage: true`): frontend test suite + coverage; uploads a partial Codacy coverage report afterward (best-effort, non-blocking) |
 | `frontend-checks` | `darthjee/circleci_node:0.2.1` | every push | `yarn_project` instance (`dir: frontend`, `script: lint`): frontend ESLint |
@@ -191,6 +194,27 @@ rm frontend -rf; cp backend/* ./ -r; rm backend -rf
 # dir: frontend
 rm backend -rf; cp frontend/* ./ -r; rm frontend -rf
 ```
+
+## Integration test database
+
+Backend unit/e2e specs (`*.spec.ts`, `*.e2e-spec.ts`; `yarn test`/`yarn coverage`,
+`backend_tests`) use fakes and need no database. The MySQL-backed `*.integration-spec.ts` suite
+(`yarn test:integration`, `backend_integration` in CI) runs against a throwaway database:
+
+- **docker-compose:** `citadel_placeholder_mysql_test` (`mysql:9.3.0`,
+  `MYSQL_DATABASE=citadel_placeholder_test`, user/password `citadel_placeholder`). Its data dir
+  `/var/lib/mysql` is on `tmpfs`, with no volume, no host port and no `env_file`, so each start is
+  empty and dev `.env` values cannot leak in. `citadel_placeholder_tests` links it as `mysql_test`
+  (alongside the dev `mysql` link), `depends_on` it, and sets the
+  `CITADEL_PLACEHOLDER_TEST_MYSQL_*` vars in its own `environment:` so an existing `.env` without
+  them still works:
+
+  ```bash
+  docker-compose run --rm citadel_placeholder_tests yarn test:integration
+  ```
+
+- **CircleCI:** the same image/env as a service container in `backend_integration`, reached at
+  `127.0.0.1`.
 
 ## Validating the CircleCI config locally
 

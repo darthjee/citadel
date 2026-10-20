@@ -33,9 +33,12 @@ const config: Config = {
     '**/*.(t|j)s',
     '!**/*.spec.ts',
     '!**/*.e2e-spec.ts',
+    // MySQL-backed specs run only under `yarn test:integration` (no coverage).
+    '!**/*.integration-spec.ts',
     // Bootstrap/wiring and TypeORM migrations are exercised by booting the
-    // app and by `yarn migration:run`/`migration:revert` against a real
-    // database (see docs/agents/architecture/backend.md), not by unit
+    // app, by `yarn migration:run`/`migration:revert` against a real
+    // database and by the MySQL-backed `yarn test:integration` suite (see
+    // docs/agents/architecture/backend.md), not by unit
     // tests — excluded here the same way `nest new`'s default Jest config
     // excludes `main.ts`.
     '!main.ts',
