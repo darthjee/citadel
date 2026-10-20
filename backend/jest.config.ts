@@ -33,6 +33,8 @@ const config: Config = {
     '**/*.(t|j)s',
     '!**/*.spec.ts',
     '!**/*.e2e-spec.ts',
+    // MySQL-backed specs run only under `yarn test:integration` (no coverage).
+    '!**/*.integration-spec.ts',
     // Bootstrap/wiring and TypeORM migrations are exercised by booting the
     // app, by `yarn migration:run`/`migration:revert` against a real
     // database and by the MySQL-backed `yarn test:integration` suite (see
