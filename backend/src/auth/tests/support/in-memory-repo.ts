@@ -161,7 +161,8 @@ export function createInMemoryRepo<T extends { id?: number }>() {
 // `EntityManager` whose `getRepository()` returns the same in-memory repo. It is **not** a real
 // transaction — there is no isolation and updates are never undone. The only rollback it mimics is
 // dropping the rows inserted through it when the callback throws (so a lost rotation race leaves no
-// stray replacement row). Real-engine transaction/concurrency checks are follow-up #9.
+// stray replacement row). Real-engine transaction/concurrency checks live in
+// `src/auth/tests/integration/token-rotation.integration-spec.ts` (`yarn test:integration`).
 function createFakeManager<T extends { id?: number }>(repo: { rows: T[]; save: (entity: T) => Promise<T> }) {
   return {
     transaction: async <R>(callback: (manager: { getRepository: () => unknown }) => Promise<R>): Promise<R> => {
