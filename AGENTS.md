@@ -16,7 +16,7 @@ on top. See [Flow](docs/agents/flow.md) for the request/data flow and
 
 - Node.js, ECMAScript (ES) Modules, TypeScript (strict), NestJS
 - TypeORM (Object-Relational Mapping — ORM — library, with CLI migrations)
-- MySQL 8
+- MySQL 9.3
 - Yarn (package manager)
 - Jest + `@swc/jest` + `supertest` + `@nestjs/testing` (tests and coverage)
 - ESLint (linting, flat config, `typescript-eslint`)
