@@ -1,4 +1,5 @@
-import { DataSource, DataSourceOptions, MigrationInterface } from 'typeorm';
+import { DataSource, MigrationInterface } from 'typeorm';
+import type { MysqlConnectionOptions } from 'typeorm/driver/mysql/MysqlConnectionOptions.js';
 import { AccountEditLockout } from '../../../auth/entities/account-edit-lockout.entity.js';
 import { AuthorizationRequest } from '../../../auth/entities/authorization-request.entity.js';
 import { PasswordResetToken } from '../../../auth/entities/password-reset-token.entity.js';
@@ -21,6 +22,7 @@ import { AuthDropSessions20261018120013 } from '../../migrations/20261018120013-
 import { AuthAddUsersStatus20261019120014 } from '../../migrations/20261019120014-auth-add-users-status.js';
 
 type MigrationClass = new () => MigrationInterface;
+type MysqlOptions = MysqlConnectionOptions;
 
 /**
  * Every migration, in timestamp order, paired with its file's basename (no extension).
@@ -57,7 +59,7 @@ export const ENTITIES = [AccountEditLockout, AuthorizationRequest, PasswordReset
  * @param env - the environment to read from (defaults to `process.env`).
  * @returns the TypeORM options for the test database.
  */
-export function testDataSourceOptions(env: NodeJS.ProcessEnv = process.env): DataSourceOptions {
+export function testDataSourceOptions(env: NodeJS.ProcessEnv = process.env): MysqlOptions {
   const database = env.CITADEL_PLACEHOLDER_TEST_MYSQL_NAME;
   if (!database) {
     throw new Error(
@@ -67,8 +69,7 @@ export function testDataSourceOptions(env: NodeJS.ProcessEnv = process.env): Dat
   }
 
   return {
-    ...dataSourceOptions,
-    type: 'mysql',
+    ...(dataSourceOptions as MysqlOptions),
     host: env.CITADEL_PLACEHOLDER_TEST_MYSQL_HOST,
     port: Number(env.CITADEL_PLACEHOLDER_TEST_MYSQL_PORT ?? 3306),
     username: env.CITADEL_PLACEHOLDER_TEST_MYSQL_USER,
@@ -151,7 +152,7 @@ export async function runMigrationsUpTo(ds: DataSource, migrationName: string): 
   if (index === -1) throw new Error(`Unknown migration: ${migrationName}`);
 
   const migrations = MIGRATIONS.slice(0, index + 1).map(({ migration }) => migration);
-  const partial = await new DataSource({ ...ds.options, migrations, poolSize: 1 }).initialize();
+  const partial = await new DataSource({ ...(ds.options as MysqlOptions), migrations, poolSize: 1 }).initialize();
   try {
     await partial.runMigrations({ transaction: 'each' });
   } finally {
