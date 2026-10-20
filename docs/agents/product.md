@@ -12,6 +12,14 @@ anything not listed here should be treated as undecided and flagged.
   `access_token` cookie and a rotating refresh token, either directly or by having an
   already-logged-in device approve the login through the device-authorization flow (see
   [Auth](modules/auth.md) and [Flow](flow.md)).
+- **User approval**: every account carries a status, `pending`, `approved` or `denied`, and
+  **only `approved` accounts are authenticated**. Admin approval of new self-registrations is
+  optional (`CITADEL_PLACEHOLDER_USER_APPROVAL_REQUIRED`, off by default); it only decides the
+  status a new registration starts with. Admins review accounts from the admin users page: they
+  approve `pending` accounts and deny any account except their own (**admins may deny other
+  admins**; only self-deny is refused). `denied` is final: un-deny is **rejected** as a
+  feature, not postponed, and only a manual DB change leaves `denied`. See
+  [User approval](modules/auth/user-approval.md).
 - **Admin tooling**: narrowly-scoped admin UI/endpoints are allowed, gated behind the admin role
   and `@AdminOnly()` — this is not general admin-panel scaffolding.
 - **Transactional email**: sent through the always-on [Mail](modules/mail.md) module (disabled
@@ -19,7 +27,9 @@ anything not listed here should be treated as undecided and flagged.
 - **Env vars for the framework**: simple env-driven config, read once at boot (no hidden env
   reads inside classes) — `CITADEL_PLACEHOLDER_SECRET_KEY` (session/cookie signing), `CITADEL_PLACEHOLDER_ALLOWED_ORIGINS`
   (CORS allowlist, falling back to `FRONTEND_BASE_URL`'s origin — format and production wildcard
-  rule in [Environment Variables](environment-variables.md)), `NODE_ENV`/`DEBUG`.
+  rule in [Environment Variables](environment-variables.md)),
+  `CITADEL_PLACEHOLDER_USER_APPROVAL_REQUIRED` (new registrations start `pending` when exactly
+  `true`), `NODE_ENV`/`DEBUG`.
 
 ## Product specifics
 
@@ -33,7 +43,9 @@ _To be defined by the project built from this template._
 
 ## Deferred (future, not current scope)
 
-_None recorded yet._
+- **User-approval notifications**: approve and deny send no email, and admins are not alerted
+  of new pending registrations.
+- **Pagination of the admin user listing** (`POST /admin/users/search.json` is unpaginated).
 
 ## What's still open
 
