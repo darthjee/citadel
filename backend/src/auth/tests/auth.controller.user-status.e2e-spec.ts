@@ -19,7 +19,7 @@ function cookieOf(response: request.Response): string {
   return response.headers['set-cookie'][0].split(';')[0];
 }
 
-// Cross-cutting non-disclosure checks of the user-approval specs (security.md, errors.md, model.md):
+// Cross-cutting non-disclosure checks of docs/agents/modules/auth/user-approval.md:
 // a pending or denied user is indistinguishable from an expired / logged-out one, and no auth
 // endpoint's `user` payload ever carries the status.
 describe('AuthController (e2e) — user status non-disclosure', () => {

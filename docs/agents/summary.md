@@ -17,16 +17,19 @@ full file before loading it. For a bare link-only table of contents instead, see
   file per module (`modules/auth.md` and `modules/mail.md` today). Read the module's page before
   extending or consuming it.
   - **[Auth](modules/auth.md)** — Citadel Placeholder's always-on login module: `/auth/*.json` routes, the
-    `auth_` tables, the JWT/refresh-token flow, and the `user.registered` and
-    `password-recovery.requested` events.
+    `auth_` tables, the JWT/refresh-token flow and session-lookup gate, the admin tool routes, and
+    the `user.registered` and `password-recovery.requested` events.
+  - **[User approval](modules/auth/user-approval.md)** — Account statuses (`pending` /
+    `approved` / `denied`), the optional `CITADEL_PLACEHOLDER_USER_APPROVAL_REQUIRED` flag, admin
+    approve/deny, per-endpoint behavior by status and lifecycle edge cases.
   - **[Mail](modules/mail.md)** — Always-on, general-purpose transactional email sender. No HTTP
     surface; consumed via the exported `MailService`. `CITADEL_PLACEHOLDER_EMAIL_*` config read once at boot;
     disabled by default (log-and-skip). Templated sends via `sendEmailTemplate`, backed by
     filesystem templates under `mail/templates/` read once at boot. First consumer: the auth
     module's password-recovery email.
 - **[Routes](backend/routes.md)** — Per-endpoint backend route reference, one file per domain
-  under `backend/routes/` (`auth.md` today), complementing the entity/event-focused
-  `modules/` pages.
+  under `backend/routes/` ([auth.md](backend/routes/auth.md) and
+  [admin.md](backend/routes/admin.md)), complementing the entity/event-focused `modules/` pages.
 
 ## Conventions
 

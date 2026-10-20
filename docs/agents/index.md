@@ -10,7 +10,12 @@ For a short abstract of each doc's content, see [summary.md](summary.md) instead
 - [Architecture](architecture.md)
 - [API Caching](architecture/caching.md)
 - [Modules](modules/)
+  - [Auth](modules/auth.md)
+  - [User approval](modules/auth/user-approval.md)
+  - [Mail](modules/mail.md)
 - [Routes](backend/routes.md)
+  - [Auth routes](backend/routes/auth.md)
+  - [Admin routes](backend/routes/admin.md)
 
 ## Conventions
 

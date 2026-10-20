@@ -54,12 +54,12 @@ this file changes.
 
 ## Active specs
 
-| Feature | Specs | Epic |
-|---|---|---|
-| User approval (optional admin approval of new registrations, plus the session-lookup gate it needs) | [specs/user-approval/README.md](specs/user-approval/README.md) | [#1](https://github.com/darthjee/citadel/issues/1) |
+none
 
 ## Completed specs
 
 Features whose specs were folded into the permanent docs, and where their definition lives now.
 
-none
+| Feature | Folded into | Epic |
+|---|---|---|
+| User approval (optional admin approval of new registrations, plus the session-lookup gate it needs); specs were `specs/user-approval/`, removed by #7 | [modules/auth/user-approval.md](modules/auth/user-approval.md) | [#1](https://github.com/darthjee/citadel/issues/1) |
