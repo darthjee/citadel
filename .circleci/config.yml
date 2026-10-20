@@ -3,9 +3,9 @@ workflows:
   version: 2
   test:
     jobs:
-      # No DB service container yet: backend specs inject mocked TypeORM repositories rather than
-      # hitting a live database (see docs/agents/product.md). Add a cimg/mysql:8.0 service alongside
-      # the first spec that actually needs one.
+      # Backend unit/e2e specs (`*.spec.ts`, `*.e2e-spec.ts`) use fakes and need no database
+      # (backend_tests). `*.integration-spec.ts` run against a throwaway MySQL service container in
+      # backend_integration (no coverage upload).
       - yarn_project:
           name: backend_tests
           dir: backend
@@ -17,6 +17,9 @@ workflows:
           filters: &all_tags
             tags:
               only: /.*/
+      - backend_integration:
+          requires: [release-circleci_citadel_placeholder-base, release-circleci_citadel_placeholder-base-arm64]
+          filters: *all_tags
       - yarn_project:
           name: backend_checks
           dir: backend
@@ -49,6 +52,7 @@ workflows:
       - build-and-release:
           requires:
             - backend_tests
+            - backend_integration
             - backend_checks
             - jasmine
             - frontend-checks
@@ -61,11 +65,12 @@ workflows:
             branches:
               ignore: /.*/
       - upload_proxy_files:
-          requires: [backend_tests, backend_checks, jasmine, frontend-checks, proxy_extension_tests]
+          requires: [backend_tests, backend_integration, backend_checks, jasmine, frontend-checks, proxy_extension_tests]
           filters: *tags_only
       - upload_fe_files:
           requires:
             - backend_tests
+            - backend_integration
             - backend_checks
             - jasmine
             - frontend-checks
@@ -169,6 +174,32 @@ jobs:
             - run:
                 name: Upload coverage to Codacy
                 command: bash <(curl -Ls https://coverage.codacy.com/get.sh) report --partial -r coverage/lcov.info || true
+
+  # Backend MySQL-backed integration suite (`*.integration-spec.ts`). Its own job rather than a
+  # yarn_project instance since it needs a second (MySQL service) image. No wait step: the
+  # suite's Jest globalSetup retries the connection until MySQL is ready.
+  backend_integration:
+    docker:
+      - image: darthjee/circleci_citadel_placeholder-base:0.0.1
+      - image: mysql:9.3.0
+        environment:
+          MYSQL_DATABASE: citadel_placeholder_test
+          MYSQL_USER: citadel_placeholder
+          MYSQL_PASSWORD: citadel_placeholder
+          MYSQL_ROOT_PASSWORD: citadel_placeholder
+    environment:
+      CITADEL_PLACEHOLDER_TEST_MYSQL_HOST: 127.0.0.1
+      CITADEL_PLACEHOLDER_TEST_MYSQL_PORT: "3306"
+      CITADEL_PLACEHOLDER_TEST_MYSQL_USER: citadel_placeholder
+      CITADEL_PLACEHOLDER_TEST_MYSQL_PASSWORD: citadel_placeholder
+      CITADEL_PLACEHOLDER_TEST_MYSQL_NAME: citadel_placeholder_test
+    steps:
+      - checkout
+      - setup_project:
+          dir: backend
+      - run:
+          name: Integration tests
+          command: npm run test:integration
 
   # Finalizes the aggregated Codacy coverage report once both partial uploads
   # (backend_tests, jasmine) have completed. Reuses circleci_citadel_placeholder-base since the
