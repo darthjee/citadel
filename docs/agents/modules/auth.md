@@ -46,7 +46,7 @@ reference.
 | Route | Body | Response |
 |---|---|---|
 | `POST /admin/users/search.json` | `{ q?, status? }` | `{ users: [adminUser], currentUserId }` |
-| `POST /admin/users/:id/edit.json` | `{ username?, email?, password? }` | `{ user: adminUser }` |
+| `POST /admin/users/:id/edit.json` | `{ username?, email?, newPassword? }` | `{ user: adminUser }` |
 | `POST /admin/users/:id/approve.json` | — | `{ user: adminUser }` |
 | `POST /admin/users/:id/deny.json` | — | `{ user: adminUser }` |
 | `POST /admin/users/:id/recovery-link.json` | — | `{ resetUrl }` |
