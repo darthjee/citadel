@@ -1,8 +1,4 @@
-import type { Config } from 'jest';
-// Jest loads config files through ts-node + Node's native ESM loader ("type": "module"),
-// which needs the real file extension here.
-// @ts-expect-error TS5097 — `allowImportingTsExtensions` is not enabled for the app build.
-import baseConfig from './jest.config.ts';
+import baseConfig from './jest.config.mjs';
 
 // MySQL-backed integration suite (`yarn test:integration`). Reuses the unit
 // config's `rootDir`/`transform`/`moduleNameMapper` and only swaps which files
@@ -15,7 +11,8 @@ import baseConfig from './jest.config.ts';
 // `require`, bypassing `moduleNameMapper`, so it can't import our `.js`-suffixed
 // NodeNext sources. Waiting for MySQL to accept connections lives in
 // `createTestDataSource()` instead (bounded retry, ~60 s).
-const config: Config = {
+/** @type {import('jest').Config} */
+const config = {
   ...baseConfig,
   testRegex: '.*\\.integration-spec\\.ts$',
   collectCoverage: false,

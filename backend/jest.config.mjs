@@ -1,5 +1,3 @@
-import type { Config } from 'jest';
-
 // Jest itself always runs as CommonJS regardless of this package's
 // "type": "module" — `@swc/jest` compiles each test/source `.ts` file to
 // CommonJS for Jest's runtime (NestJS's own recommended Jest/SWC setup;
@@ -8,7 +6,8 @@ import type { Config } from 'jest';
 // strips the explicit `.js` extensions our NodeNext-style source imports
 // use (e.g. `./auth.service.js`) so Jest resolves them back to the `.ts`
 // source files.
-const config: Config = {
+/** @type {import('jest').Config} */
+const config = {
   rootDir: 'src',
   testEnvironment: 'node',
   moduleFileExtensions: ['js', 'json', 'ts'],
