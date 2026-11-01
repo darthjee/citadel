@@ -177,7 +177,7 @@ jobs:
 
   # Backend MySQL-backed integration suite (`*.integration-spec.ts`). Its own job rather than a
   # yarn_project instance since it needs a second (MySQL service) image. No wait step: the
-  # suite's Jest globalSetup retries the connection until MySQL is ready.
+  # suite's createTestDataSource() retries the connection until MySQL is ready.
   backend_integration:
     docker:
       - image: darthjee/circleci_citadel_placeholder-base:0.0.1

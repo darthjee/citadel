@@ -34,7 +34,7 @@
 | `src/auth/` | Auth module — see `docs/agents/modules/auth.md` |
 | `src/mail/` | Mail module — always-on, no routes/entities; filesystem email templates live under `mail/templates/` — see `docs/agents/modules/mail.md` |
 | `dist/` | Compiled build output (gitignored) |
-| `nest-cli.json`, `tsconfig.json`, `tsconfig.build.json`, `jest.config.ts`, `package.json`, `eslint.config.mjs` | Tooling config |
+| `nest-cli.json`, `tsconfig.json`, `tsconfig.build.json`, `jest.config.mjs`, `jest.integration.config.mjs`, `package.json`, `eslint.config.mjs` | Tooling config |
 
 ## `frontend/` — Frontend
 

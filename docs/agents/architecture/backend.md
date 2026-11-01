@@ -259,7 +259,7 @@ against a real MySQL:
   internals (module scanning) aren't fully wired by the lightweight testing container.
 
 - **Integration specs** (`*.integration-spec.ts`): run by `yarn test:integration` (its own
-  `jest.integration.config.ts`, `--runInBand`, no coverage) against the throwaway
+  `jest.integration.config.mjs`, `--runInBand`, no coverage) against the throwaway
   `citadel_placeholder_mysql_test` database (`mysql:9.3.0` on `tmpfs`; CI job
   `backend_integration`) — always via
   `docker-compose run --rm citadel_placeholder_tests yarn test:integration`, never on the host.

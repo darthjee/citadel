@@ -16,7 +16,7 @@ You own everything inside `backend/`:
   events, core layer, database config/migrations)
 - `backend/src/*/tests/` — Jest unit and e2e specs
 - `backend/package.json`, `backend/tsconfig.json`, `backend/tsconfig.build.json`,
-  `backend/nest-cli.json`, `backend/jest.config.ts`, `backend/eslint.config.mjs`
+  `backend/nest-cli.json`, `backend/jest.config.mjs`, `backend/jest.integration.config.mjs`, `backend/eslint.config.mjs`
 
 Do NOT touch `frontend/` (delegate to the `frontend` agent), `docker-compose.yml`/`dockerfiles/`/
 `.circleci/config.yml`/`Makefile` (delegate to the `infra` agent), or `proxy/`/`navi/` (delegate
