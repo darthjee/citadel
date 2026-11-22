@@ -3,6 +3,13 @@ import AuthSession from './AuthSession.js';
 import pickDefined from './pickDefined.js';
 
 /**
+ * Options for every `@Public()` backend route: a `401` there is a real error (e.g. invalid
+ * credentials) and must reject as a plain `ApiError`, never trigger token refresh or session
+ * expiry.
+ */
+const PUBLIC = { skipAuthRecovery: true };
+
+/**
  * HTTP client for auth-related requests (registration, login, refresh, logout). Every method
  * that receives a fresh refresh token persists it via {@link AuthSession} before resolving,
  * and `logout` clears it regardless of whether the request itself succeeds — the client-side
@@ -25,7 +32,7 @@ const AccountsClient = {
       email,
       password,
       password_confirmation: passwordConfirmation,
-    });
+    }, PUBLIC);
 
     AuthSession.set(result.refreshToken);
 
@@ -40,7 +47,7 @@ const AccountsClient = {
    *   refresh token.
    */
   async login({ username, password }) {
-    const result = await ApiClient.postJson('/auth/login.json', { username, password });
+    const result = await ApiClient.postJson('/auth/login.json', { username, password }, PUBLIC);
 
     AuthSession.set(result.refreshToken);
 
@@ -55,7 +62,7 @@ const AccountsClient = {
    *   refresh token.
    */
   async refresh(refreshToken) {
-    const result = await ApiClient.postJson('/auth/refresh.json', { refreshToken });
+    const result = await ApiClient.postJson('/auth/refresh.json', { refreshToken }, PUBLIC);
 
     AuthSession.set(result.refreshToken);
 
@@ -71,7 +78,7 @@ const AccountsClient = {
    */
   async logout(refreshToken) {
     try {
-      await ApiClient.deleteJson('/auth/logoff.json', { refreshToken });
+      await ApiClient.deleteJson('/auth/logoff.json', { refreshToken }, PUBLIC);
     } finally {
       AuthSession.clear();
     }
@@ -89,7 +96,7 @@ const AccountsClient = {
    *   `false`).
    */
   async status(refreshToken) {
-    return ApiClient.postJson('/auth/status.json', { refreshToken });
+    return ApiClient.postJson('/auth/status.json', { refreshToken }, PUBLIC);
   },
 
   /**
@@ -102,7 +109,7 @@ const AccountsClient = {
    *   email matched an account.
    */
   async recover(email) {
-    return ApiClient.postJson('/auth/recover.json', { email });
+    return ApiClient.postJson('/auth/recover.json', { email }, PUBLIC);
   },
 
   /**
@@ -120,7 +127,7 @@ const AccountsClient = {
       token,
       password,
       password_confirmation: passwordConfirmation,
-    });
+    }, PUBLIC);
   },
 
   /**
@@ -134,7 +141,7 @@ const AccountsClient = {
    *   identifier, the token used to poll it, and its ISO-8601 expiry timestamp.
    */
   async createAuthorizationRequest(username) {
-    return ApiClient.postJson('/auth/authorization-requests.json', { username });
+    return ApiClient.postJson('/auth/authorization-requests.json', { username }, PUBLIC);
   },
 
   /**
@@ -155,6 +162,7 @@ const AccountsClient = {
     const result = await ApiClient.postJson(
       `/auth/authorization-requests/${uuid}/poll.json`,
       { pollToken },
+      PUBLIC,
     );
 
     if (result.status === 'approved') {

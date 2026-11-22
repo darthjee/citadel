@@ -55,7 +55,7 @@ describe('AccountsClient', () => {
       it(`posts the mapped payload to ${endpoint}`, async () => {
         await call();
 
-        expect(ApiClient.postJson).toHaveBeenCalledWith(endpoint, payload);
+        expect(ApiClient.postJson).toHaveBeenCalledWith(endpoint, payload, { skipAuthRecovery: true });
       });
 
       it('persists the returned refresh token and resolves with the response', async () => {
@@ -75,7 +75,7 @@ describe('AccountsClient', () => {
 
       expect(ApiClient.deleteJson).toHaveBeenCalledWith('/auth/logoff.json', {
         refreshToken: 'refresh-token',
-      });
+      }, { skipAuthRecovery: true });
     });
 
     it('clears the stored refresh token on success', async () => {
@@ -105,7 +105,7 @@ describe('AccountsClient', () => {
 
       expect(ApiClient.postJson).toHaveBeenCalledWith('/auth/status.json', {
         refreshToken: 'refresh-token',
-      });
+      }, { skipAuthRecovery: true });
     });
 
     it('resolves with the parsed loggedIn/isAdmin response', async () => {
@@ -134,7 +134,7 @@ describe('AccountsClient', () => {
 
       expect(ApiClient.postJson).toHaveBeenCalledWith('/auth/recover.json', {
         email: 'foo@example.com',
-      });
+      }, { skipAuthRecovery: true });
       expect(response).toEqual({ sent: true });
     });
 
@@ -160,7 +160,7 @@ describe('AccountsClient', () => {
         token: 'reset-token',
         password: 'secret',
         password_confirmation: 'secret',
-      });
+      }, { skipAuthRecovery: true });
     });
 
     it('resolves with the parsed response', async () => {

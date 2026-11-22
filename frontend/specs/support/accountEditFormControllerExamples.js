@@ -1,4 +1,5 @@
 import ApiError from '../../assets/js/client/ApiError.js';
+import sessionExpiredError from './sessionExpiredError.js';
 
 const LONG_PASSWORD = 'longenough';
 
@@ -176,8 +177,8 @@ const registerOutcomeExamples = (context, options) => {
     });
   });
 
-  it('does nothing further when the session turned out to be expired', async () => {
-    context.clientSpy.and.resolveTo(undefined);
+  it('does nothing further on a session-expired rejection', async () => {
+    context.clientSpy.and.rejectWith(sessionExpiredError());
 
     await submit(context.buildController(), { ...blankFields, username: 'newname' });
 

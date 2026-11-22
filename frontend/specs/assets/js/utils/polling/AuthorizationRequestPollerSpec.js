@@ -1,3 +1,4 @@
+import ApiError from '../../../../../assets/js/client/ApiError.js';
 import AuthorizationRequestPoller, {
   buildPollTick,
 } from '../../../../../assets/js/utils/polling/AuthorizationRequestPoller.js';
@@ -227,8 +228,8 @@ describe('buildPollTick', () => {
     expect(onRejected).not.toHaveBeenCalled();
   });
 
-  it('treats a falsy resolve as open', async () => {
-    client.pollAuthorizationRequest.and.resolveTo(undefined);
+  it('treats a rejected 401 as a transient error and reschedules', async () => {
+    client.pollAuthorizationRequest.and.rejectWith(new ApiError(401, 'Unauthorized', 'UNAUTHORIZED'));
 
     await buildTick()();
 

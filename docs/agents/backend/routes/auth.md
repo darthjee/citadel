@@ -37,7 +37,9 @@ never serialized.
 | Correct password, user `approved` | `200` |
 
 The status is checked only after the password, so it cannot be probed without the password. A
-`403` never triggers the frontend `ApiClient`'s refresh-and-retry.
+`403` never triggers the frontend `ApiClient`'s refresh-and-retry, and neither do the `401`
+answers of the `@Public()` auth routes (`AccountsClient` opts them out with
+`skipAuthRecovery`), so a wrong password reaches the login modal as a plain `ApiError`.
 
 ### `POST /auth/register.json`
 

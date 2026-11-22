@@ -1,3 +1,4 @@
+import isSessionExpired from '../../../../client/isSessionExpired.js';
 import {
   validateEmail,
   validatePasswordLength,
@@ -43,7 +44,8 @@ export default class AccountEditFormController {
    *   public `handleSubmit` signature.
    * @param {object} fields - Current form field values.
    * @param {Function} send - Async callback receiving the built payload and resolving to the
-   *   backend's response body (a falsy result is ignored).
+   *   backend's response body. A session-expired rejection is ignored (the login modal is
+   *   already open); any other rejection is reported via `handleSubmitError`.
    * @returns {Promise<void>} Resolves once submission handling finishes.
    */
   async submit(fields, send) {
@@ -166,12 +168,12 @@ export default class AccountEditFormController {
     try {
       const result = await send(payload);
 
-      if (!result) {
+      this.applySuccess(result);
+    } catch (error) {
+      if (isSessionExpired(error)) {
         return;
       }
 
-      this.applySuccess(result);
-    } catch (error) {
       this.handleSubmitError(error);
     }
   }
