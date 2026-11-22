@@ -31,7 +31,7 @@ describe('AccountsClient public routes on 401', () => {
       });
 
       it('never touches the stored session', async () => {
-        await call().catch(() => {});
+        await expectAsync(call()).toBeRejected();
 
         expect(AuthSession.set).not.toHaveBeenCalled();
         expect(AuthSession.clear).not.toHaveBeenCalled();
