@@ -21,6 +21,12 @@ frontend (React/Vite) is served alongside it through the Tent proxy (see
    modes, plus a device-authorization mode: the user can instead ask an already-logged-in device
    to vouch for their username, and poll until that device approves or denies the request.
 
+   **Session renewal.** On an authenticated route, a `401` makes the frontend `ApiClient` renew
+   the session once (refresh token, then retry). If renewal fails it re-opens the login modal and
+   the awaiting call rejects. The public auth routes (login, register, refresh, logout, status,
+   recover, reset, device authorization) never attempt renewal: their `401` is shown as-is
+   (e.g. "Invalid username or password").
+
 2. _Application-specific steps go here._
 
 ## Per-user cache (upcoming)
