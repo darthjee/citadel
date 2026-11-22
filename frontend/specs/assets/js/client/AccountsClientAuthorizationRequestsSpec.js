@@ -17,7 +17,7 @@ describe('AccountsClient authorization requests', () => {
 
       expect(ApiClient.postJson).toHaveBeenCalledWith('/auth/authorization-requests.json', {
         username: 'foo',
-      });
+      }, { skipAuthRecovery: true });
       expect(response).toEqual(request);
     });
 
@@ -40,6 +40,7 @@ describe('AccountsClient authorization requests', () => {
       expect(ApiClient.postJson).toHaveBeenCalledWith(
         '/auth/authorization-requests/req-uuid/poll.json',
         { pollToken: 'poll-token' },
+        { skipAuthRecovery: true },
       );
     });
 

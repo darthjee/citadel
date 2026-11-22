@@ -5,11 +5,10 @@ const DEFAULT_INTERVAL_MS = 5000;
 /**
  * Route a resolved poll response to the right callback: `approved` finishes with the full
  * result, the terminal rejection statuses (`denied` / `expired` / `logged`) finish with their
- * reason, and anything else — including a falsy / `undefined` resolve — is treated as `open`,
- * firing `onTick` and rescheduling another poll.
+ * reason, and anything else is treated as `open`, firing `onTick` and rescheduling another poll.
  *
  * @param {{status?: string}} result - The response from
- *   `AccountsClient.pollAuthorizationRequest`, possibly falsy.
+ *   `AccountsClient.pollAuthorizationRequest`.
  * @param {{onApproved: Function, onRejected: Function, onTick: Function,
  *   reschedule: Function}} callbacks - Dispatch targets for each outcome.
  * @returns {void} Nothing.
@@ -17,7 +16,7 @@ const DEFAULT_INTERVAL_MS = 5000;
 function dispatchPollResult(result, {
   onApproved, onRejected, onTick, reschedule,
 }) {
-  const status = (result && result.status) || 'open';
+  const status = result.status || 'open';
 
   if (status === 'approved') {
     onApproved(result);
