@@ -1,3 +1,4 @@
+import ApiError from '../../assets/js/client/ApiError.js';
 import AuthSession from '../../assets/js/client/AuthSession.js';
 import LoginModalEvents from '../../assets/js/client/LoginModalEvents.js';
 
@@ -52,6 +53,27 @@ export function stubRefreshFlow(responses, { refreshToken = 'old-refresh-token' 
   spyOn(AuthSession, 'set');
   spyOn(AuthSession, 'clear');
   globalThis.fetch = fetchSequence(responses);
+}
+
+/**
+ * Asserts that a promise rejects with the session-expired `ApiError` (first `401`).
+ *
+ * @param {Promise<*>} promise - The promise expected to reject.
+ * @returns {Promise<void>} Resolves once the assertion has run.
+ */
+export async function expectSessionExpiredRejection(promise) {
+  let caught;
+
+  try {
+    await promise;
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught instanceof ApiError).toBe(true);
+  expect(caught).toEqual(jasmine.objectContaining({
+    status: 401, code: 'UNAUTHORIZED', sessionExpired: true,
+  }));
 }
 
 /**

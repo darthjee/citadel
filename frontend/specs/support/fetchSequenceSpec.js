@@ -2,8 +2,9 @@ import AuthSession from '../../assets/js/client/AuthSession.js';
 import LoginModalEvents from '../../assets/js/client/LoginModalEvents.js';
 import { installFakeWindow, uninstallFakeWindow } from './fakeWindow.js';
 import {
-  expectSessionExpired, fakeResponse, fetchSequence, stubRefreshFlow,
+  expectSessionExpired, expectSessionExpiredRejection, fakeResponse, fetchSequence, stubRefreshFlow,
 } from './fetchSequence.js';
+import sessionExpiredError from './sessionExpiredError.js';
 
 describe('fetchSequence support', () => {
   let originalFetch;
@@ -85,6 +86,12 @@ describe('fetchSequence support', () => {
       const response = await globalThis.fetch('/anything');
 
       expect(await response.json()).toEqual({ id: 1 });
+    });
+  });
+
+  describe('expectSessionExpiredRejection', () => {
+    it('passes for a promise rejected with the session-expired ApiError', async () => {
+      await expectSessionExpiredRejection(Promise.reject(sessionExpiredError()));
     });
   });
 

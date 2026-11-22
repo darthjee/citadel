@@ -20,5 +20,7 @@ export default class ApiError extends Error {
     this.status = status;
     this.code = code;
     this.details = details;
+    /** `true` only when `ApiClient` could not recover an expired session (see `isSessionExpired`). */
+    this.sessionExpired = false;
   }
 }

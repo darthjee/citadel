@@ -3,7 +3,9 @@ import ApiError from '../../../../assets/js/client/ApiError.js';
 import AuthSession from '../../../../assets/js/client/AuthSession.js';
 import LoginModalEvents from '../../../../assets/js/client/LoginModalEvents.js';
 import { installFakeWindow, uninstallFakeWindow } from '../../../support/fakeWindow.js';
-import { expectSessionExpired, fetchSequence, stubRefreshFlow } from '../../../support/fetchSequence.js';
+import {
+  expectSessionExpired, expectSessionExpiredRejection, fetchSequence, stubRefreshFlow,
+} from '../../../support/fetchSequence.js';
 
 function errorBody(statusCode, code, message, details) {
   return { error: { code, message, details }, statusCode, timestamp: '2026-09-28T12:00:00.000Z' };
@@ -186,9 +188,8 @@ describe('ApiClient', () => {
         { ok: false, status: 401, json: errorBody(401, 'UNAUTHORIZED', 'invalid refresh token') },
       ]);
 
-      const data = await ApiClient.postJson('/accounts/register.json', { username: 'foo' });
+      await expectSessionExpiredRejection(ApiClient.postJson('/accounts/register.json', { username: 'foo' }));
 
-      expect(data).toBeUndefined();
       expect(globalThis.fetch).toHaveBeenCalledTimes(2);
       expectSessionExpired();
     });
@@ -198,9 +199,8 @@ describe('ApiClient', () => {
         { ok: false, status: 401, json: errorBody(401, 'UNAUTHORIZED', 'Unauthorized') },
       ], { refreshToken: null });
 
-      const data = await ApiClient.postJson('/accounts/register.json', { username: 'foo' });
+      await expectSessionExpiredRejection(ApiClient.postJson('/accounts/register.json', { username: 'foo' }));
 
-      expect(data).toBeUndefined();
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
       expectSessionExpired();
     });
@@ -212,9 +212,8 @@ describe('ApiClient', () => {
         { ok: false, status: 401, json: errorBody(401, 'UNAUTHORIZED', 'Unauthorized') },
       ]);
 
-      const data = await ApiClient.postJson('/accounts/register.json', { username: 'foo' });
+      await expectSessionExpiredRejection(ApiClient.postJson('/accounts/register.json', { username: 'foo' }));
 
-      expect(data).toBeUndefined();
       expect(globalThis.fetch).toHaveBeenCalledTimes(3);
       expectSessionExpired();
     });
