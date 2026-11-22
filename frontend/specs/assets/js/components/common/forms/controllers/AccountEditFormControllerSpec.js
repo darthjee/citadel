@@ -1,4 +1,5 @@
 import AccountEditFormController from '../../../../../../../assets/js/components/common/forms/controllers/AccountEditFormController.js';
+import sessionExpiredError from '../../../../../../support/sessionExpiredError.js';
 
 describe('AccountEditFormController', () => {
   let setFields;
@@ -213,8 +214,8 @@ describe('AccountEditFormController', () => {
       expect(setSuccess).toHaveBeenCalledWith(true);
     });
 
-    it('ignores a falsy result', async () => {
-      send.and.resolveTo(undefined);
+    it('ignores a session-expired rejection', async () => {
+      send.and.rejectWith(sessionExpiredError());
 
       await controller.submit(validFields({ username: 'bob' }), send);
 

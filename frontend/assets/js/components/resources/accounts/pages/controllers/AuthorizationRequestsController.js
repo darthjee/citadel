@@ -1,9 +1,10 @@
 import AccountsClient from '../../../../../client/AccountsClient.js';
+import isSessionExpired from '../../../../../client/isSessionExpired.js';
 
 /**
  * Controller for the "My account → Authorizations" page: lists the caller's own open
  * authorization requests and lets them approve or deny each one. Every method that reaches
- * {@link AccountsClient} treats a falsy (`undefined`) result the same way: return immediately,
+ * {@link AccountsClient} treats a session-expired rejection the same way: return immediately,
  * without touching any state — {@link module:client/ApiClient} already opened the login modal
  * itself on a session-expired `401`, so there is nothing left for this page to do.
  */
@@ -34,13 +35,13 @@ export default class AuthorizationRequestsController {
     try {
       const result = await this.client.listAuthorizationRequests();
 
-      if (!result) {
-        return;
-      }
-
       this.setRequests(result.requests);
       this.setLoadError(null);
     } catch (error) {
+      if (isSessionExpired(error)) {
+        return;
+      }
+
       this.setLoadError(error.message);
     }
   }
@@ -74,8 +75,8 @@ export default class AuthorizationRequestsController {
   /**
    * Shared guard-and-set-row-error logic for {@link AuthorizationRequestsController#authorize}/
    * {@link AuthorizationRequestsController#deny}: run the given API call, guard its
-   * session-expired `undefined` result, clear the row's error and reload the list on success,
-   * or store the thrown `ApiError`'s message against the row on failure.
+   * call, clear the row's error and reload the list on success, ignore a session-expired
+   * rejection, or store any other thrown `ApiError`'s message against the row on failure.
    *
    * @param {string} uuid - The authorization request identifier, used to key the row state.
    * @param {Function} apiCall - Zero-argument function performing the row's API call.
@@ -83,15 +84,15 @@ export default class AuthorizationRequestsController {
    */
   async #performRowAction(uuid, apiCall) {
     try {
-      const result = await apiCall();
-
-      if (!result) {
-        return;
-      }
+      await apiCall();
 
       this.patchRow(uuid, { error: null });
       await this.load();
     } catch (error) {
+      if (isSessionExpired(error)) {
+        return;
+      }
+
       this.patchRow(uuid, { error: error.message });
     }
   }

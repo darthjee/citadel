@@ -1,4 +1,5 @@
 import AdminClient from '../../../../../client/AdminClient.js';
+import isSessionExpired from '../../../../../client/isSessionExpired.js';
 import { redirectIfForbidden } from '../../../../../utils/routing/redirects.js';
 
 /**
@@ -146,7 +147,7 @@ export default class AdminUsersController {
   }
 
   #handleTopLevelError(error) {
-    if (redirectIfForbidden(error)) {
+    if (isSessionExpired(error) || redirectIfForbidden(error)) {
       return;
     }
 
@@ -154,7 +155,7 @@ export default class AdminUsersController {
   }
 
   #handleRowError(userId, error) {
-    if (redirectIfForbidden(error)) {
+    if (isSessionExpired(error) || redirectIfForbidden(error)) {
       return;
     }
 
