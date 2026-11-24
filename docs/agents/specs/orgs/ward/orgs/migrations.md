@@ -1,180 +1,165 @@
 # Organizations - Migrations
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Tables](./tables.md), [Models](./models.md), [Glossary](./glossary.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-The two organization tables are created by **exactly one migration**:
+The whole feature is created by **one migration**:
 
 | Property | Value |
 |---|---|
-| File | `20261107120015-auth-create-organizations.ts` |
-| Folder | `backend/src/database/migrations/` |
-| Creates | `auth_organizations` and `auth_organization_memberships` |
-| Also creates | The two foreign keys, the unique index `(organization_id, user_id)` and the `user_id` index |
-| Touches | Nothing else. `auth_users` is referenced, never altered |
+| File | `backend/src/database/migrations/20261107120015-auth-create-organizations.ts` |
+| Tables created | `auth_organizations`, `auth_organization_memberships` |
+| Runs after | `20260824120001-auth-create-users.ts` |
+| Position in the set | 15th |
 
-## Scope of this page
+There is no second migration for this feature. Everything the domain needs - both tables, both
+foreign keys, both indexes - is in this one file.
 
-The `docs/agents/` pages name this migration and state what it creates. They do **not** quote its
-source: the exact `up()` and `down()` bodies, the `QueryRunner` calls, the index and constraint
-names, and the engine/charset/collation options are not in the documentation.
+## Why the timestamp matters
 
-This page therefore documents:
+`20261107120015` is an **ordering key**, not a deployment date. It reads 7 November 2026, 12:00:15.
 
-- **what is documented** - the file, its folder, and the objects it creates;
-- **what follows from the schema** - creation order, why the FKs must come last, what `down()`
-  must do;
-- **what is not documented** - everything about the source itself.
+The only ordering constraint: it must sort **after** the users migration. The membership table has a
+foreign key to `auth_users`, so creating it earlier fails.
 
-Read the migration file for the authoritative version. Nothing on this page claims to be a
-transcription of it.
+If the target repository has its own migration numbering, place this one at the end. The number only
+needs to sort after `auth_users`.
 
-## File naming convention
+## What it creates
 
-The filename follows TypeORM's migration convention, `<timestamp>-<name>.ts`:
+### `auth_organizations`
 
-```
-20261107120015-auth-create-organizations.ts
-|------------| |--------------------------|
-     |                    |
-     |                    +-- descriptive name: module + action + subject
-     +-- timestamp in YYYYMMDDHHMMSS form
-```
+| Column | Type | Null | Key |
+|---|---|---|---|
+| `id` | integer | no | Primary key, auto-increment |
+| `name` | varchar(255) | no | - |
+| `created_at` | timestamp | no | - |
+| `updated_at` | timestamp | no | - |
 
-- `2026 11 07 12 00 15` decodes to **7 November 2026, 12:00:15**. This is the migration ordering
-  key, not a deployment date: it fixes the position of the file in the run order.
-- `auth` is the module prefix, matching `backend/src/auth/`.
-- `create-organizations` states the action and the subject, in kebab-case.
-- TypeScript, per the project stack (Node.js, ES Modules, TypeScript strict, TypeORM with CLI
-  migrations).
+No index on `name`. No unique constraint. No owner column.
 
-Migrations live under `backend/src/database/migrations/` - a single shared folder for all modules,
-not inside each module's own directory. This is the convention stated in `AGENTS.md`.
+### `auth_organization_memberships`
 
-## What the migration creates
+| Column | Type | Null | Key |
+|---|---|---|---|
+| `id` | integer | no | Primary key, auto-increment |
+| `organization_id` | integer | no | FK > `auth_organizations.id`, `ON DELETE RESTRICT` |
+| `user_id` | integer | no | FK > `auth_users.id`, `ON DELETE RESTRICT` |
+| `role` | enum or varchar | no | - |
+| `created_at` | timestamp | no | - |
+| `updated_at` | timestamp | no | - |
 
-### Tables
+### Indexes
 
-| Table | Purpose |
-|---|---|
-| `auth_organizations` | The organizations: `id`, `name`, `created_at`, `updated_at` |
-| `auth_organization_memberships` | The join between users and organizations, carrying the role |
-
-### Constraints and indexes
-
-| Object | Table | Detail |
+| Index | Columns | Kind |
 |---|---|---|
-| Primary key | `auth_organizations` | `id` |
-| Primary key | `auth_organization_memberships` | `id` |
-| Unique index | `auth_organization_memberships` | `(organization_id, user_id)` - one membership per user per organization; also serves the membership lookup |
-| Index | `auth_organization_memberships` | `user_id` |
-| Foreign key | `auth_organization_memberships` | `organization_id` -> `auth_organizations.id`, `ON DELETE RESTRICT` |
-| Foreign key | `auth_organization_memberships` | `user_id` -> `auth_users.id`, `ON DELETE RESTRICT` |
+| PRIMARY | `id` | Primary key |
+| unique | `(organization_id, user_id)` | Unique composite |
+| secondary | `user_id` | Index |
 
-There is **no** unique index on `auth_organizations.name` and **no** partial unique index on
-`role = 'owner'`. See [Tables](./tables.md).
+The composite unique index is what makes "one membership per user per organization" a database
+rule. The `user_id` index serves `GET /orgs.json`.
 
-## Creation order, and why
+There is **no index on `role`** and **no partial unique index on `role = 'owner'`**. See
+[Models](./models.md).
 
-A correct `up()` must respect the dependency chain. The order below **follows from the
-documented schema** - it is inference from the foreign keys, not a transcription of the
-migration:
+## `up()` in order
 
-1. **`auth_organizations`** - referenced by the other table, so it must exist first.
-2. **`auth_organization_memberships`** - the referencing table.
-3. **Unique index `(organization_id, user_id)`** - needs the table and both columns.
-4. **Index on `user_id`** - needs the table and the column.
-5. **Foreign key on `organization_id`** - needs both tables to exist.
-6. **Foreign key on `user_id`** - needs `auth_users` to exist.
+Reproduce this sequence exactly if the target uses another migration framework:
 
-### The hard dependency
+1. Create `auth_organizations`.
+2. Create `auth_organization_memberships`.
+3. Create the unique index `(organization_id, user_id)`.
+4. Create the index on `user_id`.
+5. Create the foreign key on `organization_id` > `auth_organizations.id`.
+6. Create the foreign key on `user_id` > `auth_users.id`.
 
-The second foreign key points at **`auth_users`**, which this migration does **not** create. That
-makes the users migration a **prerequisite**: the organizations migration can only run after
-`auth_users` exists. This is the one ordering constraint that a reader must not miss, and it is
-the reason the organizations migration carries a later timestamp than the users one.
+Both foreign keys come last because they need the referenced tables to exist.
 
-### What the migration must not do
+## `down()` in reverse
 
-- It must not create, alter or seed `auth_users`.
-- It must not insert data. Organizations are created at runtime through `POST /orgs.json`, and
-  registration creates none. The first spec (#28) would have auto-created an organization at
-  registration; #40 reversed that **before it was built**, so no data migration exists for it.
-- It must not create an `owner` column anywhere. Ownership lives in the membership role.
+1. Drop the foreign key on `user_id`.
+2. Drop the foreign key on `organization_id`.
+3. Drop the indexes on `auth_organization_memberships`.
+4. Drop `auth_organization_memberships`.
+5. Drop `auth_organizations`.
 
-## `down()`
+`auth_organization_memberships` **must** be dropped before `auth_organizations`. Dropping the
+referenced table first fails while the foreign key still points at it.
 
-The schema dictates what a rollback needs, in reverse dependency order:
+## The prerequisite
 
-1. Drop the two foreign keys.
-2. Drop the indexes on `auth_organization_memberships`.
-3. Drop `auth_organization_memberships`.
-4. Drop `auth_organizations`.
+The migration creates a foreign key to **`auth_users`**, a table it does **not** create.
 
-Because both foreign keys are `ON DELETE RESTRICT`, the referencing table must be dropped before
-the referenced one - the reverse of the creation order. Dropping `auth_organizations` first would
-fail while the foreign key still points at it.
+| Situation | What to do |
+|---|---|
+| The target already has a users table | Copy only the organizations migration; adjust the referenced table name if it differs |
+| The target does not | Copy `20260824120001-auth-create-users.ts` as well |
 
-The exact implementation is **not documented**, so whether `down()` drops the indexes explicitly
-or relies on the table drop is unknown from the docs. Follow the file.
+Failure mode if skipped: the backend compiles, the server boots, and the migration throws on the
+foreign key. It looks like a bug in the organizations migration and is not.
 
-## Interacting with `ON DELETE RESTRICT` at migration time
+## What it must not do
 
-- **Forward run** - no issue: the tables are empty, so there is nothing to restrict.
-- **Rollback with data** - dropping the tables removes the rows too, so `RESTRICT` never fires
-  during a table drop. `RESTRICT` protects against deleting *rows*, not against dropping the
-  table that holds them.
-- **Deleting an organization row at runtime** - blocked while a membership references it. Since
-  every organization always has at least its `owner` membership, no organization row is
-  deletable today. See [Tables](./tables.md).
-- **Deleting a user row at runtime** - blocked while that user still belongs to any organization.
+- **Not create, alter or seed `auth_users`.** That belongs to the users migration.
+- **Not insert data.** Organizations are created at runtime through `POST /orgs.json`.
+- **Not add an `owner` column.** Ownership is the membership role.
+- **Not backfill.** An earlier spec proposed auto-creating an organization at registration; it was
+  reversed before being built, so there is no data to migrate.
 
-Closing (deleting) organizations is documented target behaviour, not built: see
-[#83](https://github.com/darthjee/ward/issues/83). Whatever that work does, it must remove or
-otherwise resolve the memberships before the organization row can go.
+## `ON DELETE RESTRICT` at migration time
 
-## Running migrations
+| Situation | Behaviour |
+|---|---|
+| Forward run | No issue - tables are empty |
+| Rollback with data | Dropping the table removes its rows too; `RESTRICT` never fires |
+| Deleting an organization **row** at runtime | Blocked while a membership references it |
+| Deleting a user **row** at runtime | Blocked while that user belongs to any organization |
 
-Per `AGENTS.md`, migrations run through Docker Compose - never with a host-installed package
-manager:
+`RESTRICT` protects against deleting **rows**, not against dropping the table that holds them. Every
+organization always has at least its `owner` membership, so no organization row is deletable today.
+
+## Running it
+
+Migrations run through Docker Compose, never with a host-installed package manager:
 
 ```
 make setup
 ```
 
-All project commands go through `docker-compose`. The backend runs on port `3030`, the frontend
-dev server on `3010`, and the full stack proxy on `3000`. Database engine: MySQL 9.3.
+Database engine: **MySQL 9.3**.
 
-## Naming divergence from the original spec
+## Verification
 
-| Item | Original spec | Migration creates |
-|---|---|---|
-| Organization table | `organizations` | `auth_organizations` |
-| Membership table | `organization_memberships` | `auth_organization_memberships` |
+```
+SHOW CREATE TABLE auth_organizations;
+SHOW CREATE TABLE auth_organization_memberships;
+SHOW INDEX FROM auth_organization_memberships;
+```
 
-The prefix follows the module convention: every `auth` table is `auth_`-prefixed. The entity
-class names stay unprefixed (`Organization`, `OrganizationMembership`); the prefix is a
-table-level decision only. This divergence is listed among the
-[Differences from the original spec](./orgs.md) of the module and repeated here because the
-migration is where it becomes physical.
+Confirm four things:
+
+1. Both tables exist with the columns above.
+2. The composite unique index `(organization_id, user_id)` is present.
+3. The `user_id` index exists **separately** from the composite.
+4. Both foreign keys carry `ON DELETE RESTRICT`.
+
+If the composite unique index is missing, duplicate memberships become possible and `findMembership`
+lookups turn ambiguous.
 
 ## What is not documented in the repository
 
-The following are **absent** from `docs/agents/` and must be read from the migration file or the
-TypeORM configuration:
+The project documentation names the file, its position and the objects it creates. It does **not**
+contain:
 
-- the `up()` and `down()` source;
-- the exact index and constraint names (the docs describe indexes by their columns, never by
-  name);
-- whether indexes and foreign keys are created inside the `CREATE TABLE` call or by separate
-  statements;
-- transaction wrapping and any `IF NOT EXISTS` guards;
-- engine, charset and collation per table;
-- timestamp precision and timezone handling;
-- whether `created_at` / `updated_at` defaults are set in the database or by the ORM.
+- the **source** of `up()` / `down()` - the DDL is not quoted anywhere;
+- whether the class-based or the raw-SQL form is used;
+- the exact types for `role`, `created_at` and `updated_at`;
+- whether the composite unique index is declared in the migration or through an entity decorator;
+- whether `helpers.ts` provides a helper this migration calls, and which;
+- the storage engine, charset and collation;
+- whether the migration is transactional on MySQL for DDL.
 
-Nothing on this page is invented beyond what the docs state. The creation order, the `down()`
-sequence and the `RESTRICT` behaviour are derived from the documented schema, and are labelled as
-derived where they appear.
+Read the migration file for the authoritative version. Nothing on this page is inferred beyond what
+the docs state.
