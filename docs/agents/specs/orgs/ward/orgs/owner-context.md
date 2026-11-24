@@ -1,289 +1,246 @@
 # Organizations - Owner Context
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Roles](./roles.md), [Service](./service.md), [Security](./security.md),
-[Glossary](./glossary.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-The owner-context mechanism resolves **which owner the current request works for** - a plain user
-or an organization - in **one place**, before any handler body runs, so the check cannot be
-forgotten route by route.
+Every request has exactly **one owner**: a user or an organization. Resolving it, guarding it and
+filtering by it are all handled in **one place**, so no domain module writes that logic itself.
 
-Six pieces, all in `backend/src/core/`:
-
-| Piece | File | Role |
+| Piece | Location | Role |
 |---|---|---|
-| `OwnerContextGuard` | `owner-context.guard.ts` | Global `APP_GUARD` that resolves the owner and stores it on the request |
-| `ownerWhere()` / `ownerSqlWhere()` | `owner-context.ts` | Build the owner filter for TypeORM `where` objects and for raw SQL |
-| `parseOrgId()` | `parse-org-id.ts` | Strict parser for `:orgId`; a raw string, so `1e3` never becomes `1000` |
-| `@OwnerScoped()` | `owner-scoped.decorator.ts` | Route metadata that turns the guard on for that route |
-| `@OwnerScopedController(path)` | `owner-scoped.decorator.ts` | Mounts a controller under both prefixes and sets the cache class, inseparably |
-| `@CurrentOwner()` | `current-owner.decorator.ts` | Injects the resolved `OwnerContext` into the handler |
-| `@MinOrgRole(role)` | `min-org-role.decorator.ts` | Declares a route's minimum role; read by the guard |
-| `ORGANIZATION_MEMBERSHIP_LOOKUP` | `organization-membership-lookup.ts` | The port the guard depends on, so `core/` never imports `auth/` |
-| `OrgRole` / `hasMinRole()` / `orgRoleForbidden()` | `org-role.ts` | The roles, the ranking comparison and the uniform 403 |
+| `OwnerContextGuard` | `backend/src/core/owner-context.guard.ts` | Global `APP_GUARD` - resolves the owner and enforces the minimum role |
+| `OwnerContext` | `backend/src/core/owner-context.ts` | The resolved union: `{ kind: 'user' }` or `{ kind: 'organization', organizationId, role }` |
+| `OwnerScope` | Same file | The union **without** `role` |
+| `ownerWhere()` | Same file | Owner filter for TypeORM `where` objects |
+| `ownerSqlWhere(scope, alias)` | Same file | Owner filter for raw SQL |
+| `@OwnerScoped()` | `backend/src/core/owner-scoped.decorator.ts` | Marks a route as owner-scoped |
+| `@OwnerScopedController(path)` | Same file | Marks a whole controller and mounts it under both prefixes |
+| `@CurrentOwner()` | `backend/src/core/current-owner.decorator.ts` | Injects the resolved context |
+| `@MinOrgRole(role)` | `backend/src/core/min-org-role.decorator.ts` | Declares the route's minimum role |
+| `ORGANIZATION_MEMBERSHIP_LOOKUP` | `backend/src/core/organization-membership-lookup.ts` | The port the guard uses to read membership |
+| `parseOrgId()` | `backend/src/core/parse-org-id.ts` | Parses `:orgId` from a raw string |
 
-Everything above lives in `core/`, **not** in `auth/`. That placement is the design.
+## Why this exists
 
-## Why the mechanism exists
+Without a shared mechanism, every owner-scoped module would answer three questions in its own way:
 
-Without it, every owner-scoped route would need its own membership check, and every new route
-would be one forgotten `if` away from leaking another user's data. Two properties make that
-failure mode cheap to introduce:
+1. **Who owns this request?** The JWT user, or the organization in the URL?
+2. **Is the caller allowed here at all?** Membership, and how is it checked?
+3. **Which rows may be returned?** The owner filter, applied to every query.
 
-- The owner can arrive from **three** different places - the JWT, the URL, or the body - and only
-  two of them are legitimate.
-- The filter must be applied to **every** query, including raw SQL that TypeORM `where` objects
-  do not reach.
+Answering those in `bank`, then again in the next module, duplicates a security decision. One module
+would get it subtly wrong - a missing filter, a role checked in the wrong order - and nothing would
+catch it.
 
-The guard removes the first problem by resolving the owner once; `ownerWhere()` and
-`ownerSqlWhere()` remove the second by giving both query styles one builder.
+The owner-context mechanism answers all three once.
 
-## The resolved value
+## The layering rule
 
-`request.ownerContext` holds a discriminated union:
+This is the design constraint that shapes everything else.
+
+**`core/` never imports `auth/`.**
+
+| Layer | Knows about | Does not know about |
+|---|---|---|
+| `core/` | HTTP, guards, decorators, the owner-context types, the port interfaces | `Organization`, `OrganizationMembership`, `User`, any auth entity |
+| `auth/` | Everything in `core/`, plus its own entities and services | - |
+| Domain modules (`bank`) | `core/` and their own entities | `auth/` internals |
+
+The dependency is inverted through ports:
+
+- `ORGANIZATION_MEMBERSHIP_LOOKUP` - the guard asks "what is this user's role in this organization?"
+  without knowing there is a membership table.
+- `SESSION_LOOKUP` - `JwtGuard` asks "which user owns this session?" without knowing there is a
+  session table.
+
+`OrganizationService` implements the membership port, and `AuthModule` binds it with `useExisting`.
+See [Service](./service.md).
+
+Consequence for a reader: **the guard has no idea what an organization is.** It knows an `:orgId`
+integer and a role, both obtained through the port.
+
+## The flow
 
 ```
-{ kind: 'user',         userId }
-{ kind: 'organization', organizationId, role }
+request
+  |
+  v
+JwtGuard (global)
+  |  - reads the access_token cookie
+  |  - verifies signature and expiry
+  |  - validates sid / sub claims
+  |  - loads request.user from the session via SESSION_LOOKUP
+  |  - 401 if any step fails
+  v
+OwnerContextGuard (global)
+  |  - if the route has no @OwnerScoped(): pass through untouched
+  |  - if :orgId present in the URL:
+  |       parseOrgId()          -> 404 on a malformed id
+  |       lookup.findRole()     -> 404 when null (unknown, foreign, or non-member)
+  |       @MinOrgRole check     -> 403 when the rank is too low
+  |       context = { kind: 'organization', organizationId, role }
+  |  - otherwise:
+  |       context = { kind: 'user', userId: request.user.id }
+  |  - stores the context on the request
+  v
+handler
+     - receives it through @CurrentOwner()
+     - filters through ownerWhere() / ownerSqlWhere()
 ```
 
-- `role` is present **only** in the organization variant, and comes from the DB membership.
-- The union **without** `role` is called `OwnerScope`, and is also used for owners **derived from a
-  record** rather than from the request.
-- `ownerRole(ctx)` returns the organization role, or **`owner` for the personal context**. This is
-  the bridge to the role system - see [Roles](./roles.md).
+Two global guards, in this order. `JwtGuard` must run first: the owner cannot be resolved before
+the caller is known.
 
-Services receive **only** this context, never a raw id. A service method that takes a bare
-`organizationId` or `userId` re-opens the hole the guard closed.
+## The two contexts
 
-## Request pipeline
+| Context | `kind` | Contains | Owner is |
+|---|---|---|---|
+| Personal | `'user'` | `userId` | The JWT user |
+| Organization | `'organization'` | `organizationId`, `role` | The organization |
 
-Order matters, and the docs state it explicitly.
+`OwnerContext` carries `role`; `OwnerScope` does not. The distinction matters for callers that derive
+the owner from a **record** rather than from the request - they need the owner identity, not the
+caller's rank.
 
-```
-1. JwtGuard            - authenticated, approved user (or the gate 401)
-2. OwnerContextGuard   - global APP_GUARD, registered AFTER JwtGuard
-   a. route has no @OwnerScoped()  ->  do nothing, done
-   b. personal prefix (no :orgId)  ->  owner = JWT user
-   c. organization prefix          ->  parseOrgId() + membership lookup
-   d. store request.ownerContext
-   e. read @MinOrgRole (handler first, then class)
-   f. role too low                 ->  uniform 403
-3. Handler             - @CurrentOwner(), @StrictBody()
-```
+### The personal context counts as `owner`
 
-Two consequences of that order:
+`ownerRole(ctx)` returns **`owner`** for `{ kind: 'user' }`.
 
-- **The 404 always precedes the 403.** Steps c and f are in that sequence, so a non-member never
-  reaches the role comparison. A 403 therefore never reveals that an organization exists.
-- **The guard is global but inert.** `APP_GUARD` registration means it runs everywhere; the
-  `@OwnerScoped()` metadata decides whether it does anything. There is no per-route registration
-  to forget.
+That single decision removes personal special-casing from the permission code: `hasMinRole()` and the
+frontend `can()` treat a user acting on their own data exactly like an organization owner.
 
-## Personal prefix
+## `:orgId` parsing
 
-Led by the rule: **the owner is the JWT user, never the URL or the body.**
+`parseOrgId()` receives the raw route segment as a **string**:
 
-- The personal route set carries **no owner in the URL** - `/bank/accounts.json`, not
-  `/users/:userId/bank/accounts.json`.
-- Because there is no owner segment to tamper with, another user's personal data cannot be
-  addressed at all. The only thing that selects the owner is the authenticated token.
-- Personal routes therefore **must** be `user-scoped` in the cache, with no exception: a shared
-  cache would leak one user's data to another, since the response has no owner in the URL to key
-  on. See [Caching](./caching.md).
-
-## Organization prefix
-
-Led by the opposite rule: **`:orgId` is untrusted input, and membership is re-checked every time.**
-
-- `:orgId` is taken as a **raw string** and parsed by `parseOrgId()`. A raw string is deliberate:
-  with `parseInt` or a numeric coercion, `1e3` would become `1000`, and the guard would resolve a
-  different organization than the one written in the path.
-- The membership is checked on **every** request, with **no caching** and **no admin bypass**.
-- **Every** failure throws the **same uniform 404**: missing user, malformed id, unknown id, and
-  non-member - a global admin included. The caller cannot tell the cases apart, so an attacker
-  cannot enumerate organizations.
-
-The full response bodies are in [Security](./security.md).
-
-## `OwnerContextGuard`
-
-| Property | Value |
+| Input | Result |
 |---|---|
-| File | `backend/src/core/owner-context.guard.ts` |
-| Registration | Global `APP_GUARD`, **after** `JwtGuard` |
-| Activated by | `@OwnerScoped()` metadata - on the route, or on the controller via `@OwnerScopedController()` |
-| Does without the metadata | **Nothing.** It returns immediately |
-| Writes | `request.ownerContext` |
-| Then reads | `@MinOrgRole`, **handler first, then class** |
-| Throws | uniform `404` (resolution) then uniform `403` (role) |
-| Caches the role | **No**, never |
+| `'7'` | `7` |
+| `'0'` | rejected |
+| `'007'` | rejected by the pattern |
+| `'abc'` | rejected |
+| `'1e3'` | rejected - **not** coerced to `1000` |
+| `'1.5'` | rejected |
+| `''` | rejected |
+| above `2147483647` | rejected |
 
-### What it does not do
+The raw-string signature is the point. A parser receiving a number would have already coerced `1e3`
+to `1000` and resolved a different organization.
 
-- It does **not** read the cache policy - that is declared on the controller.
-- It does **not** validate the body - `@StrictBody()` does.
-- It does **not** decide which records exist - it only resolves the owner scope; the query
-  builders apply the filter.
-- It does **not** grant the global `is_admin` any organization role.
+Every rejection answers the **uniform `404`** - a malformed id is not distinguishable from an unknown
+one.
+
+The frontend mirrors this with `^[1-9][0-9]*$` and the same `2147483647` bound, resolving to
+`not-found` **without issuing a request**.
+
+## The check order is the contract
+
+```
+1. Route has @OwnerScoped()?          no -> pass through, no cost
+2. :orgId parses?                     no -> 404
+3. Membership exists?                 no -> 404     <- non-member
+4. Role meets @MinOrgRole?            no -> 403     <- member, too low
+5. Attach the context, continue
+```
+
+**The `404` check comes before the `403` check.** Consequences:
+
+- A non-member never receives a `403`, so a `403` never reveals that the organization exists.
+- The `403` body names neither the resource nor the required role.
+- A malformed id never reaches a role comparison at all.
+
+Reordering steps 3 and 4 turns the endpoint into an existence oracle.
+
+## Owner filters
+
+Two builders, because the query styles differ.
+
+### `ownerWhere(scope)`
+
+Returns an object for TypeORM's `where`:
+
+```
+user scope:         { userId: <id> }
+organization scope: { organizationId: <id> }
+```
+
+Used in repository calls: `repo.find({ where: ownerWhere(scope) })`.
+
+### `ownerSqlWhere(scope, alias)`
+
+Returns a SQL fragment plus its parameters, bound to a table alias:
+
+```
+user scope:         `${alias}.user_id = ?`
+organization scope: `${alias}.organization_id = ?`
+```
+
+Used in raw SQL, such as the ledger aggregations. The alias is a parameter because a query may join
+several owner-rooted tables.
+
+Both exist so that the filter is **never written by hand** in a module. A hand-written filter is
+where the "forgot the organization case" bug lives.
+
+### Child records
+
+Child tables store **no owner copy**. They inherit the owner through their root, so the filter is
+applied to the root and reaches children by join.
+
+That is what makes moving a record between owners feasible: only the root row changes.
 
 ## `@OwnerScopedController(path)`
 
-The decorator that makes mounting, scoping and cache class a single decision.
+One decorator that bundles three decisions that must not drift apart:
 
-- Mounts the controller under **both** `<path>` and `orgs/:orgId/<path>`.
-- Adds `@OwnerScoped()` to it.
-- Sets the cache class to **`user-scoped`**.
+1. Mount the controller under `<path>` **and** `orgs/:orgId/<path>`.
+2. Add `@OwnerScoped()` so the guard acts.
+3. Set the cache class to **`user-scoped`**.
 
-The three are bundled **so they cannot be separated**: a controller cannot be mounted under the
-organization prefix while silently missing the scoping, nor be owner-scoped while declared
-`public`.
+The three are inseparable by design. A controller cannot be mounted under both prefixes while
+silently missing the scoping, and cannot be owner-scoped while declared `public`.
 
-> A route may narrow the cache class to `never` - but **never** to `public`.
+Consequence: the cache class of an owner-scoped controller is not a free choice. See
+[Caching](./caching.md).
 
-## `@CurrentOwner()`
+## What the guard does not do
 
-- Injects the resolved `OwnerContext` into the handler.
-- Handlers pass it to the service; the service never receives a raw id.
-- The handler does not re-resolve, re-parse or re-check: by the time it runs, the guard has
-  already done all three.
-
-## `ownerWhere()` and `ownerSqlWhere()`
-
-The two builders that make the filter impossible to skip in either query style.
-
-| Helper | Target | Why it is needed |
-|---|---|---|
-| `ownerWhere(scope)` | TypeORM `where` objects | The standard path for repository queries |
-| `ownerSqlWhere(scope, alias)` | raw SQL | Raw SQL bypasses TypeORM's `where`, so the filter has to be built into the statement - the `alias` binds it to a table alias |
-
-- Both take an **`OwnerScope`** - the union **without** `role` - so they also accept owners derived
-  from a record, not only from the request.
-- The `data-access` checklist makes this a review rule: **every query is filtered through the
-  `OwnerContext` resolved by `OwnerContextGuard`** (`ownerWhere()` / `ownerSqlWhere()`), and
-  **personal queries use only the JWT user as owner**.
-
-## `ORGANIZATION_MEMBERSHIP_LOOKUP`
-
-The port that keeps the dependency arrow pointing one way.
-
-| Property | Value |
+| Not done | Why |
 |---|---|
-| File | `backend/src/core/organization-membership-lookup.ts` |
-| Method | `findRole(userId, orgId)` |
-| Returns | the member's `OrgRole`, or `null` |
-| Cost | **one** lookup, on the unique `(organization_id, user_id)` index |
-| Provided by | `AuthModule`, with `OrganizationService` via **`useExisting`** |
+| Import `auth` | The layering rule. Membership is read through the port |
+| Cache the role | It is re-read per request - a role change applies on the next request |
+| Trust a role from input | The role is never read from a body, query or header |
+| Bypass for a global admin | There is no `is_admin` path in the owner check |
+| Distinguish "unknown" from "not a member" | Both are the uniform 404 |
 
-- `null` conflates "no such organization" and "not a member", **deliberately**: the caller cannot
-  distinguish them, so neither can an attacker. Both become the same 404.
-- **Other modules read memberships only through this port**, never by querying the `auth_` tables.
-- `useExisting` means **one instance**: the same object is both the concrete service and the port
-  implementation. See [Service](./service.md).
+## Consequences for a new module
 
-The same pattern as `SESSION_LOOKUP`. `core/` depends on the interface; only `auth` knows the
-implementation.
+| Step | Detail |
+|---|---|
+| 1 | Declare the ownership kind. User-owned modules skip this whole mechanism |
+| 2 | Write the owner columns (`user_id`, `organization_id`), both nullable, with the check constraint |
+| 3 | Implement the repository queries through `ownerWhere()` / `ownerSqlWhere()` |
+| 4 | Mount the controller with `@OwnerScopedController(path)` - do not hand-mount the two prefixes |
+| 5 | Declare `@MinOrgRole(role)` on every write route |
+| 6 | Read the context with `@CurrentOwner()`; never reconstruct it from the request |
 
-## `parseOrgId()`
-
-- File: `backend/src/core/parse-org-id.ts`.
-- Input: the `:orgId` path segment **as a raw string**.
-- Purpose: reject anything that is not a plain integer id, so a value such as `1e3` can never be
-  coerced into `1000` and resolve a different organization than the one in the URL.
-- Every rejection joins the uniform 404 - the parser's failures are indistinguishable from a
-  non-member's.
-
-## `@StrictBody()`
-
-Not part of the owner resolution, but part of the same contract, because it closes the **body** as
-an owner source.
-
-- File: `backend/src/core/strict-validation.pipe.ts`.
-- Every handler takes its body through it, so **unknown fields - owner fields included - answer
-  `400`**.
-- This is what makes "no client-supplied owner or role" true at the transport layer:
-  `organizationId`, `userId` and `role` in a body are rejected before any service code runs.
-- Organization bodies accept **only** `name`. Any other field answers `400 VALIDATION_FAILED`.
-
-## The dependency rule: `core/` never imports `auth/`
-
-The reason every piece above lives in `core/` and not in `auth/`:
-
-- `OwnerContextGuard` is a **global** guard. If it imported `auth/`, every module using an
-  owner-scoped route would inherit a dependency on `auth`.
-- `OrgRole` is used by the guard, the decorator and every owner-scoped module. Putting it in
-  `core/` lets all of them use it without importing `auth`.
-- `auth`'s `MembershipRole` **re-exports** `OrgRole`. Same type, two import paths, **one
-  definition**.
-- The membership lookup crosses the boundary through a **port**, injected at runtime.
-
-The arrow therefore points one way only:
-
-```
-auth  ---imports--->  core
-core  --uses port-->  ORGANIZATION_MEMBERSHIP_LOOKUP  (implemented by auth, injected at runtime)
-modules  ---imports--->  core
-```
-
-A `core/` file importing from `auth/` breaks the rule that makes the guard usable platform-wide.
-
-## Failure answers, in order
-
-| Step | Situation | Answer |
-|---|---|---|
-| `JwtGuard` | no `access_token`, bad signature, expired or revoked session, `pending` / `denied` user | `401` (single uniform body) |
-| `OwnerContextGuard` | missing user, malformed `:orgId`, unknown `:orgId`, not a member - global admin included | uniform `404` |
-| `OwnerContextGuard` | member whose role is below `@MinOrgRole` | uniform `403` |
-| `@StrictBody()` | unknown field in the body, `role` and owner fields included | `400 VALIDATION_FAILED` |
-
-- The **404 comes before any 403**, always.
-- The 403 body names neither the resource nor the required role.
-- There is **no `is_admin` bypass** at any step.
-
-## Checklist for adding a new owner-scoped route
-
-Derived from the module's rules; useful as a review checklist.
-
-1. Mount the controller with **`@OwnerScopedController(path)`** - never mount the two prefixes by
-   hand.
-2. Declare the minimum role with **`@MinOrgRole(role)`** if the route writes.
-3. Take the owner from **`@CurrentOwner()`**, never from the URL beyond `:orgId` and never from the
-   body.
-4. Take the body through **`@StrictBody()`**, and make the DTO accept no owner field.
-5. Filter every query with **`ownerWhere()`** or **`ownerSqlWhere()`** - including raw SQL.
-6. Pass the **`OwnerContext`** to the service, never a raw id.
-7. Do not add a role to the input, a cache layer over the role, or an `is_admin` bypass.
-8. Keep the cache class at `user-scoped` or narrow it to `never` - **never `public`**.
-
-## Coverage spec
-
-The mechanism is guarded by a **coverage spec** that fails the build on the two ways a route can
-opt out of it:
-
-- a handler taking a plain **`@Body()`** instead of `@StrictBody()`;
-- an owner-scoped route declared **`public`**.
-
-See [Tests](./tests.md) for the rest of the review surface.
+The failure mode to keep in mind: a query that looks correct but omits the filter. It passes review,
+passes the structural spec, and returns another owner's rows. See [Tests](./tests.md).
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages name every file in this mechanism, state its role and describe the
-pipeline order. They do **not** contain:
+The project documentation states the guard, its position in the chain, the two contexts, the
+decorators, the port, the filter builders and the check order. It does **not** contain:
 
-- the source of `owner-context.guard.ts`, `owner-context.ts`, `parse-org-id.ts`,
-  `owner-scoped.decorator.ts`, `current-owner.decorator.ts`, `min-org-role.decorator.ts`,
-  `organization-membership-lookup.ts` or `org-role.ts`;
-- the file that **declares the `OwnerContext` and `OwnerScope` types** - the docs give the union
-  shape and attribute the filter helpers to `owner-context.ts`, but do not state where the types
-  themselves are declared;
-- the implementation of `parseOrgId()`: its accepted format, its return type, and the error it
-  throws on rejection;
-- whether `@OwnerScoped()` carries arguments;
-- how `request.ownerContext` is typed on the Express request object;
-- the ordering guarantees between `@StrictBody()` and the guard;
-- the full text of the coverage spec, which the docs reference without quoting.
+- the **source** of `owner-context.guard.ts`, `owner-context.ts` or the decorators;
+- where exactly the context is stored on the request (a property, a `Symbol` key, a WeakMap);
+- the `MembershipView` shape returned by the port;
+- whether `ownerSqlWhere` returns a parameterised fragment, a query builder clause, or both;
+- the exact behaviour when `@OwnerScoped()` is combined with `@Public()` - the coverage spec treats
+  the combination as a failure, the runtime behaviour is not described;
+- how `parseOrgId()` distinguishes `0` from a negative number in its error type, since both answer
+  the same 404;
+- whether the guard runs before or after any other interceptor beyond `JwtGuard`.
 
-Read the files under `backend/src/core/` for the authoritative version. Nothing on this page
-claims to be a transcription of them.
+Read `backend/src/core/` for the authoritative version. Nothing on this page is inferred beyond what
+the docs state.
