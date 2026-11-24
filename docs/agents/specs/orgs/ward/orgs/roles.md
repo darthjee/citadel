@@ -1,211 +1,182 @@
 # Organizations - Roles
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Glossary](./glossary.md), [Models](./models.md), [Service](./service.md),
-[Owner context](./owner-context.md), [Security](./security.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-- Roles are stored on the membership: `OrganizationMembership.role`.
-- Three roles, ranked `user` < `admin` < `owner`. A role allows everything a lower role allows.
-- The role is **enforced on every request**, never taken from input, and **re-read from the
-  database with no caching**.
-- The **personal context counts as `owner`**.
-- **No action is owner-only today.** Owner-only actions arrive with the deferred epics.
-- Organization roles are **distinct from Ward's global admin role** (`User.isAdmin`), which
-  grants **no** organization access.
+Three roles, ranked, enforced at three separate points.
 
-## The three roles
-
-Ranking from `backend/src/core/org-role.ts`. The numeric rank is the ordering concept, not a
-stored value: only the three strings are persisted.
-
-| Role | Rank | May |
+| Role | Rank | Grants |
 |---|---|---|
-| `user` | 1 | Read everything in the organization, and the **everyday writes**: create and edit transactions, bills and provider bills, pay or skip occurrences, mark accountant rows as sent / unsent |
-| `admin` | 2 | Everything `user` may, plus the **destructive and structural writes**: every delete (including undoing a payment), the account structure (create, edit, archive, unarchive, delete accounts), editing a payment-generated transaction, and renaming the organization |
-| `owner` | 3 | Everything `admin` may. The owner is the organization's creator |
+| `owner` | 3 | Everything `admin` can do. Held by the organization's creator |
+| `admin` | 2 | Destructive and structural writes |
+| `user` | 1 | Reads, and everyday writes |
 
-- **Reads are open to every member**: every `GET` needs only membership, not a minimum role.
-- **Inheritance, not separate permission sets**: `admin` is defined as `user` plus extras;
-  `owner` as `admin` plus extras. There is no permission `owner` has that `admin` lacks today.
-- The capability split is between **everyday writes** (`user`) and **destructive and structural
-  writes** (`admin`). That is the line the design actually draws.
+- Ranking: `user` < `admin` < `owner`. A role allows everything a lower one allows.
+- **Reads need only membership** - every `GET` is open to `user`.
+- **No action is owner-only today.** Every action an `owner` can take, an `admin` can take too.
+- The role is **never taken from input** and is re-read from the database on every request.
 
-## Where the role lives
+Epic #81, delivered by #143 (backend) and #144 (frontend).
 
-- **One place only**: the `role` column of `auth_organization_memberships`, `varchar(16)`, one of
-  the three strings. See [Tables](./tables.md).
-- There is **no role on the user**, no role on the organization, and no `roles` table.
-- A user's roles are therefore **per organization**: the same person may be `owner` in one
-  organization and `user` in another.
+## The capability split
 
-## How the role is set
-
-- **Written when the membership is written.** The creator always gets `owner`.
-- `OrganizationService#create` is the only code that writes memberships, and it always writes
-  exactly one `owner` row in the same DB transaction as the organization. See
-  [Service](./service.md).
-- **Never taken from input.** Organization bodies accept only `name` (via `OrganizationNameDto`);
-  any other field - `role` included - answers `400 VALIDATION_FAILED`.
-- **No role-change endpoint exists.** Changing a role is target behaviour, part of the deferred
-  member-management work (#82).
-
-## The role is re-read on every request
-
-This is a hard rule, stated in the module docs and in the `data-access` review checklist:
-
-- The role used for any check comes **only from the DB membership**, through `findRole`.
-- **No caching** of the role, on any layer.
-- **No `is_admin` bypass** - a global admin gets no organization role.
-- Consequence: a role changed in the database applies **immediately** on the next request. The
-  frontend refreshes its copy of the role on any `403`.
-
-## The personal context counts as `owner`
-
-`ownerRole(ctx)` returns the organization role when the context is
-`{ kind: 'organization', organizationId, role }`, and **`owner`** when it is
-`{ kind: 'user', userId }`.
-
-- The JWT user may therefore do everything on their own personal data - the same ceiling as an
-  organization owner, applied to data they own alone.
-- This is why the personal route set needs no separate permission matrix: the personal context is
-  always the highest role.
-- It does **not** mean a user gets `owner` anywhere else. Personal `owner` is scoped to personal
-  records only.
-
-## Enforcement points
-
-Roles are enforced in three distinct places. Knowing which one applies to a route matters when
-reading or adding code.
-
-### 1. `@MinOrgRole(role)` on owner-scoped routes
-
-- Declared on a **method or a class** (`backend/src/core/min-org-role.decorator.ts`).
-- `OwnerContextGuard` reads it - **handler first, then class** - and throws the uniform 403 when
-  `!hasMinRole(ownerRole(ctx), min)`.
-- Only meaningful on routes that carry `@OwnerScoped()`: without it, the guard does nothing.
-- Because the guard runs in order, the **membership 404 is thrown before the role 403**.
-
-### 2. Service-level checks on organization routes
-
-The organization routes (`/orgs.json`, `/orgs/:orgId.json`) are **not** owner-scoped, so
-`@MinOrgRole` does not apply. The role check happens inside the service instead.
-
-The documented example is rename: `OrganizationService.rename` performs
-`hasMinRole(membership.role, ADMIN)` itself. See [Endpoints](./endpoints.md).
-
-### 3. Record-dependent rules, failing closed
-
-Some checks depend on the record, not only on the role - the documented case is
-**editing a payment-generated transaction**, which needs `admin`. These are checked in the
-service and **fail closed**.
-
-## The `OrgRole` type and its helpers
-
-All in `backend/src/core/org-role.ts`:
-
-| Export | Role |
+| Capability | Minimum role |
 |---|---|
-| The role values | `owner`, `admin`, `user` |
-| `hasMinRole(role, min)` | The ranking comparison. Every role check goes through it |
-| `orgRoleForbidden()` | Builds the **uniform 403** body |
+| Read anything in the organization | `user` (membership) |
+| Create and edit transactions | `user` |
+| Create and edit bills and provider bills | `user` |
+| Pay or skip an occurrence | `user` |
+| Mark accountant rows as sent or unsent | `user` |
+| Undo a payment | `admin` |
+| Edit a payment-generated transaction | `admin` |
+| Manage the account structure - create, edit, archive, unarchive, delete | `admin` |
+| Delete a record | `admin` |
+| Rename the organization | `admin` |
 
-### Why it lives in `core/`
+The dividing line: **everyday data entry is `user`; anything destructive or structural is `admin`.**
 
-- **`core` never imports `auth`.** Putting `OrgRole` in `core` lets the guard, the decorator and
-  every owner-scoped module use it without importing the auth module.
-- `auth`'s `MembershipRole` **re-exports** `OrgRole`. Same type, two import paths, **one
-  definition**. Do not look for a second definition of the roles.
+## The three enforcement points
 
-## The uniform 403
+The same matrix is enforced three times, at three layers, and the layers must agree.
 
-Every role failure - route minimum, payment-generated transaction, rename - answers the **same**
-body, naming neither the resource nor the required role:
+### 1. The guard - `@MinOrgRole()`
 
-```json
-{
-  "error": { "code": "FORBIDDEN", "message": "Forbidden" },
-  "statusCode": 403,
-  "timestamp": "<ISO 8601>"
-}
+Declared on a route, read by `OwnerContextGuard`.
+
+- The route declares its minimum role as metadata.
+- The guard resolves the membership, then compares via `hasMinRole(membership.role, min)`.
+- A failure answers the **uniform 403**.
+- This is the mechanism for owner-scoped modules such as `bank`.
+
+### 2. The service - the rename check
+
+The four organization routes are **not** owner-scoped, so `@MinOrgRole()` does not apply to them.
+`OrganizationService.rename` performs the check itself:
+
+```
+hasMinRole(membership.role, ADMIN)
 ```
 
-- The body never says which role was required.
-- The body never says whether the resource exists.
-- A `403` is only ever reached by a **member**. A non-member gets the uniform `404` instead - see
-  [Security](./security.md).
+- The membership is loaded inside the service, not supplied by the caller.
+- A failure raises `orgRoleForbidden()` - the same uniform 403 body.
+- `create` needs no check: any approved user may create an organization, and becomes `owner`.
 
-## 404 before 403
+### 3. The frontend - `can(role, action)`
 
-The ordering rule, and why it matters:
+`utils/permissions/orgPermissions.js` mirrors the matrix.
 
-1. Resolve the user.
-2. Parse `:orgId` strictly (`parseOrgId()`).
-3. Look up the membership. **Any** failure - missing user, malformed or unknown id, non-member,
-   non-member global admin - throws the uniform **404**.
-4. Only then read the route's `@MinOrgRole` and throw the uniform **403** if the role is too low.
-
-Consequence: a 403 is **never** used to reveal that an organization exists. A non-member cannot
-distinguish "no such organization" from "organization exists but you are not in it".
-
-## No owner-only action today
-
-- `owner` is the highest role, but **no action requires it**. Everything the owner can do, an
-  `admin` can do too.
-- The single `owner` membership exists to guarantee that every organization has a highest-ranking
-  member, not to gate any route today.
-- **Owner-only actions are deferred** with the member-management and lifecycle epics. See
-  [Roadmap](./roadmap.md).
-
-## Target member-management rules (not built)
-
-These are documented targets, for [#82](https://github.com/darthjee/ward/issues/82) (joining,
-members, leave, transfer) and [#83](https://github.com/darthjee/ward/issues/83) (closing):
-
-| Actor | Would be allowed |
+| Action | Minimum role |
 |---|---|
-| `admin` | Manage only `user` members |
-| `owner` | Manage `admin`s, transfer ownership, close the organization |
+| `WRITE` | `user` |
+| `UNDO_PAYMENT` | `admin` |
+| `EDIT_PAYMENT_TRANSACTION` | `admin` |
+| `MANAGE_ACCOUNTS` | `admin` |
+| `RENAME_ORGANIZATION` | `admin` |
+| `DELETE` | `admin` |
 
-None of it exists: there is no invite, no member list, no leave, no transfer and no close.
-With no way to join, **every organization has exactly one member: its owner**.
+- **It fails closed**: an unknown or `null` role, or an unknown action, answers `false`.
+- `role` comes from the org list, so there is no separate role request.
+- The UI **hides** what the role cannot do. **Hidden controls are not a security boundary** - every
+  one of those actions is refused by the backend.
 
-## Organization roles versus the global admin
+## Where the role comes from
 
-These are two unrelated systems. Mixing them up is the most common authorization mistake in this
-project.
+| Rule | Detail |
+|---|---|
+| Source | `OrganizationMembership.role`, read through `findRole(userId, orgId)` |
+| Cache | **None.** Re-read from the DB on every request |
+| Input | **Never.** No body, query param or header carries a role |
+| Default | None. `create` writes `owner` explicitly; nothing else writes a role |
+| Personal context | `ownerRole(ctx)` returns **`owner`**, so `can()` needs no personal branch |
 
-| | Organization role | Global admin |
+The last row is why the personal context needs no special case anywhere in the permission code: the
+JWT user is treated as `owner` of their own data.
+
+## The global admin is not an organization role
+
+Two different concepts that are constantly confused:
+
+| Concept | Scope | Grants organization access |
 |---|---|---|
-| Stored on | `auth_organization_memberships.role` | `auth_users.is_admin` |
-| Scope | One organization | The whole platform |
-| Guards | `OwnerContextGuard`, `@MinOrgRole`, service checks | `JwtGuard` + `@AdminOnly()` |
-| Covers | That organization's data | **Accounts only** |
-| Grants organization access | Yes, within that organization | **No** - same 404 as anyone else |
+| `owner` / `admin` / `user` | One organization | Yes, to that organization |
+| Global admin (`is_admin` on the user) | The platform | **No** |
 
-- A Ward admin who is not a member gets the **uniform 404**, not a 403 and not access.
-- Being an organization `owner` grants **nothing** outside that organization.
-- **Personal data is owner-only**: never visible to organization members - even of an
-  organization the owner belongs to - nor to the global `is_admin`.
+Consequences:
 
-## Role matrix per route - where to find it
+- A global admin who is **not a member** gets the same uniform **`404`** as anyone else.
+- There is **no `is_admin` bypass** anywhere in the organization path.
+- `AdminGuard` / `@AdminOnly()` govern the admin routes and are unrelated to this matrix.
+- Being an organization `owner` grants nothing outside that organization.
 
-This page documents the roles, the mechanism and the capability split. It does **not** reproduce
-the full per-route matrix.
+## The 404-before-403 rule
 
-- The per-route minimum-role matrix lives in
-  [Bank routes -> Minimum role](../../backend/routes/bank.md#minimum-role). `bank` is the only
-  module with owner-scoped routes today, so it is where the matrix is meaningful.
-- The organization routes' own role rules are on [Endpoints](./endpoints.md): both `GET`s are open
-  to every member, `POST /orgs.json` has no role gate, and `PATCH /orgs/:orgId.json` needs
-  `admin` or `owner`.
+The check order is part of the security contract, not an implementation detail.
+
+```
+1. Is the caller a member?          no  -> uniform 404
+2. Does the role meet the minimum?  no  -> uniform 403
+3. Proceed
+```
+
+Consequences:
+
+- A **non-member never receives a `403`.** A `403` therefore never reveals that the organization
+  exists.
+- The `403` body names **neither the resource nor the required role**. It is always
+  `FORBIDDEN` / `Forbidden`.
+- On `PATCH /orgs/:orgId.json` the full order is **`400` > `404` > `403`**: the body is validated
+  first, so an invalid body answers `400` even for an unknown organization.
+
+## The "exactly one owner" invariant
+
+The `owner` role is special only in that `create` writes it. It is **not** protected by the schema.
+
+- There is **no partial unique index** on `role = 'owner'`.
+- The invariant holds because `OrganizationService#create` is the **only** writer of memberships.
+- It always writes exactly one `owner` row, in the same transaction as the organization.
+- Any second writer - invite, join, transfer, role change - must preserve it in its own transaction.
+
+Nothing in the database will catch a violation. See [Service](./service.md) and
+[Roadmap](./roadmap.md).
+
+## Role changes mid-session
+
+| Layer | Behaviour |
+|---|---|
+| Backend | Immediate. The role is re-read per request, so a change on the next request is already in effect |
+| Frontend | On the next `403`. The UI holds a copy from `GET /orgs.json`; `ApiClient` emits `permission:forbidden`, and `forbiddenRefreshEffect` refetches once per burst |
+
+Visible sequence for a demoted admin: controls still shown, click one, backend answers `403`, UI
+refreshes the role, controls disappear. Until that `403`, the UI may still offer actions the backend
+will refuse - that is UX lag, not a security hole.
+
+## Adding an action
+
+When a new capability arrives, four places must change together:
+
+1. **Backend route** - `@MinOrgRole(role)` if the controller is owner-scoped, or an explicit
+   `hasMinRole` check in the service otherwise.
+2. **Backend matrix documentation** - the capability table above.
+3. **Frontend `ACTIONS`** - a new constant, with its minimum role.
+4. **Frontend gating** - `useCan(action)` at the control, so the button hides for the roles that
+   cannot use it.
+
+Missing step 4 shows a control the API refuses. Missing step 1 or 2 is a security hole. A
+divergence between the backend matrix and `orgPermissions.js` is invisible until someone clicks.
 
 ## What is not documented in the repository
 
-- The exact source of `org-role.ts`: the literal values of the ranking constants, the function
-  signatures beyond their names, and how the 403 body is assembled.
-- Whether the ranking is a numeric map, an array order, or a comparison chain.
-- The `bank` per-route matrix, which is documented in `bank.md` but not reproduced here.
+The project documentation states the three values, the ranking, the capability split, the three
+enforcement points and the 404/403 order. It does **not** contain:
 
-Nothing on this page is inferred beyond what the docs state.
+- the **full capability list per route** - the canonical matrix lives in `backend/routes/bank.md`
+  under "minimum role", which is outside the organizations documents;
+- the TypeScript declaration of `OrgRole`, beyond the three string values;
+- whether `hasMinRole` treats an unknown role as the lowest or fails hard - the docs state that
+  `can()` on the frontend fails closed, not what the backend does for an unexpected value;
+- whether new values could be added without a migration;
+- any owner-only action, because none exists today.
+
+Read `backend/src/core/org-role.ts` and `backend/src/auth/organization.service.ts` for the
+authoritative version. Nothing on this page is inferred beyond what the docs state.
