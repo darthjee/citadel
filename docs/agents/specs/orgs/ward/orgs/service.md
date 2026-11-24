@@ -1,212 +1,223 @@
 # Organizations - Service
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Models](./models.md), [Roles](./roles.md), [Owner context](./owner-context.md),
-[Endpoints](./endpoints.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-`OrganizationService` (`backend/src/auth/organization.service.ts`) is the only place that reads or
-writes organizations and memberships.
+`OrganizationService` is the **only** code that reads or writes organization data. Three properties
+define it:
 
-- It is the **single writer of memberships** in the entire codebase - the reason the
-  "exactly one owner" invariant holds.
-- It **implements the `ORGANIZATION_MEMBERSHIP_LOOKUP` port**, so the owner-context guard can read
-  a role without `core/` importing `auth/`.
-- It **checks roles itself on the organization routes**, because those routes are not
-  owner-scoped and `@MinOrgRole` does not apply to them.
-- It is injected into `OrganizationController`, which stays a thin delegation layer.
-
-## Responsibilities
-
-| Responsibility | Detail |
+| Property | Consequence |
 |---|---|
-| Create an organization | Inserts the organization and one `owner` membership in a single DB transaction |
-| Rename an organization | Validates the caller's role, then writes the new name |
-| List the caller's organizations | Backs `GET /orgs.json`, ordered by id |
-| Read one organization | Backs `GET /orgs/:orgId.json`, with the caller's role |
-| Resolve a membership role | `findRole(userId, orgId)` - the `ORGANIZATION_MEMBERSHIP_LOOKUP` implementation |
-| Expose a membership | `findMembership(userId, orgId)` - exported for other modules |
+| **Single writer of memberships** | The "exactly one owner" invariant holds without a database constraint |
+| **Implements the membership-lookup port** | The core guard can check membership without importing `auth` |
+| **Not owner-scoped** | Its four routes do not use `@MinOrgRole()`; the role check lives inside `rename` |
 
-Controllers are described in [Endpoints](./endpoints.md). The service holds the business logic;
-the controller holds the route definitions and response setup.
+## Public surface
 
-## The single-writer rule
-
-`OrganizationService#create` is the **only code that writes memberships**.
-
-- It always writes exactly **one** `owner` row, for the caller.
-- It does so in the **same DB transaction** as the organization insert.
-- The role is **hard-coded to `owner`** for the creator and never read from input.
-
-The second and third points above are what allow the invariant "every organization has exactly one
-owner" to hold **without a database constraint**. There is no partial unique index on
-`role = 'owner'` - see [Tables](./tables.md).
-
-**Consequence for anyone adding code:** a new write path to memberships must preserve the
-invariant on its own. The database will not catch a violation.
-
-## `create`
-
-Input: the caller's user id and an already-validated name.
-
-Steps, in one transaction:
-
-1. Insert the `Organization` row.
-2. Insert the `OrganizationMembership` row: `organization_id` from step 1, `user_id` from the
-   caller, `role = 'owner'`.
-3. Commit.
-
-Guarantees that follow:
-
-- **Atomicity.** A failure in step 2 rolls back step 1, so an organization can never exist without
-  its owner membership.
-- **No role from input.** Organization bodies carry only `name`; any other field answers
-  `400 VALIDATION_FAILED` before the service is reached.
-- **No second member.** There is no code path that adds another membership, which is why every
-  organization has exactly one member today.
-
-The caller must be an **approved, authenticated user** - that is enforced by `JwtGuard`, not by
-the service.
-
-## `rename`
-
-The only update operation that exists.
-
-- Signature shape: the caller's membership plus the new name.
-- **Role check lives here**, not in a decorator: `hasMinRole(membership.role, ADMIN)`.
-- **Why here:** the organization routes are **not** owner-scoped, so `OwnerContextGuard` does not
-  run on them and `@MinOrgRole` would have no effect. The service is therefore the enforcement
-  point. See [Roles -> Enforcement points](./roles.md#enforcement-points).
-- A member with a lower role receives the **uniform 403**
-  (`{ "error": { "code": "FORBIDDEN", "message": "Forbidden" }, "statusCode": 403, ... }`),
-  naming neither the resource nor the required role.
-- **Concurrent renames: last write wins.** There is no optimistic locking and no version column.
-
-### Check order on `PATCH /orgs/:orgId.json`
-
-The order is significant and is **not** the service's alone:
-
-| Step | Where | Answer |
+| Method | Called by | Notes |
 |---|---|---|
-| 1. Validate the body | DTO / `@StrictBody()` | `400 VALIDATION_FAILED` |
-| 2. Resolve `:orgId` and membership | Controller / service | `404` (uniform) |
-| 3. Check the role | `OrganizationService.rename` | `403` (uniform) |
+| `create(userId, dto)` | `POST /orgs.json` | Writes the organization **and** the `owner` membership in one transaction |
+| `listForUser(userId)` | `GET /orgs.json` | Returns the caller's memberships, ordered by organization `id` |
+| `findOne(userId, orgId)` | `GET /orgs/:orgId.json` | Loads through the membership, so a non-member gets the uniform 404 |
+| `rename(userId, orgId, dto)` | `PATCH /orgs/:orgId.json` | Loads the membership, checks the role, then updates |
+| `findRole(userId, orgId)` | `OwnerContextGuard` via the port | Returns the `OrgRole` or `null` |
+| `findMembership(userId, orgId)` | `OwnerContextGuard` via the port | Returns the membership row, for callers needing more than the rank |
 
-- The body is validated **first**, so an invalid body answers `400` even for an unknown or foreign
-  organization.
-- That `400` depends **only on the body**, so it cannot be used to enumerate organizations.
-- The `404` **always** precedes the `403`.
+The names above are the documented responsibilities. See [Endpoints](./endpoints.md) for the HTTP
+contract and [Owner context](./owner-context.md) for how the guard reaches `findRole`.
 
-## The `ORGANIZATION_MEMBERSHIP_LOOKUP` port
+## `create` - the one place the invariant is decided
 
-`OrganizationService` is the adapter behind the port that `core/` depends on.
+```
+create(userId, { name }):
+  transaction:
+    organization = insert(name)                  -> id
+    membership   = insert(organization.id,
+                          userId,
+                          role: 'owner')         -> hard-coded
+  return serialize(organization, role: 'owner')
+```
 
-| Property | Value |
+Four things this does, in order of importance:
+
+1. **Both rows in one transaction.** A failure leaves no organization without its owner, which is
+   what keeps "an organization always has at least one membership" true.
+2. **The role is hard-coded to `owner`.** It never comes from the request body. Even if the DTO
+   allowed a `role` field, this method would ignore it - and `@StrictBody()` rejects it earlier
+   anyway.
+3. **The caller becomes the owner.** There is no way to create an organization owned by someone
+   else.
+4. **No cap, no dedupe.** The same user may create two organizations with the same name.
+
+This method being the **only** writer of memberships is the entire enforcement of "exactly one owner
+per organization". See [Roles](./roles.md).
+
+## `listForUser`
+
+Returns the organizations the user belongs to, each with the **caller's** role.
+
+| Property | Detail |
 |---|---|
-| Port | `ORGANIZATION_MEMBERSHIP_LOOKUP` (`backend/src/core/organization-membership-lookup.ts`) |
-| Method | `findRole(userId, orgId)` |
-| Returns | The member's `OrgRole`, or `null` - meaning "not a member, or no such organization" |
-| Cost | **One lookup** on the unique `(organization_id, user_id)` index |
-| Wiring | `AuthModule` provides it with `OrganizationService` via `useExisting` |
+| Order | By organization `id` |
+| Pagination | **None** |
+| Empty case | `200` with `[]` - not `404` |
+| Role field | The user's role in each organization, read from the membership |
+| Owner identity | Never included |
+| Member list | Never included |
 
-### Why the port exists
+With no way to join, every entry today has `role: 'owner'`. A `user` or `admin` value would come
+from #82.
 
-- **`core/` never imports `auth/`.** The guard, the decorator and every owner-scoped module depend
-  on the interface in `core/`, and only `auth` knows the implementation. This is the same pattern
-  as `SESSION_LOOKUP`.
-- **Other modules read memberships only through this port** (or through the service's own
-  `findMembership`), **never by querying the tables**. A module that writes its own SELECT against
-  `auth_organization_memberships` is a defect.
+## `findOne`
 
-### `null` is deliberately ambiguous
+The load path is what produces the uniform `404`:
 
-`findRole` returning `null` conflates two situations - no such organization, and no membership in
-an existing organization - and that is **intentional**. The caller cannot distinguish them, so
-neither can an attacker: both produce the same uniform `404`.
+```
+findOne(userId, orgId):
+  membership = findMembership(userId, orgId)   -> null if any of:
+                                                   unknown id, non-numeric id,
+                                                   foreign id, not a member
+  if !membership: raise NotFound
+  return serialize(membership.organization, membership.role)
+```
 
-### No caching
+There is **no** branch that distinguishes "organization does not exist" from "you are not a member".
+The absence of that branch is the security property, not an oversight.
 
-- The role is **re-read from the DB on every request**.
-- No cache layer, no request-scoped memoization, no `is_admin` bypass.
-- Consequence: a role changed in the database applies on the **next request**. The frontend
-  refreshes its copy on any `403`.
+A global admin who is not a member reaches the same `NotFound`. There is no `is_admin` bypass in this
+method or anywhere above it.
 
-## `findMembership`
+## `rename` - where the role check lives
 
-- Exported alongside the port implementation.
-- Signature: `findMembership(userId, orgId)`.
-- Used where the caller needs the **membership row itself** - the rename path needs the role - not
-  only the rank.
-- Also backed by the unique `(organization_id, user_id)` index.
+This is the method to read when asking "why is the role check here and not in a decorator?".
+
+```
+rename(userId, orgId, { name }):
+  membership = findMembership(userId, orgId)
+  if !membership:                raise NotFound           // 404 first
+  if !hasMinRole(membership.role, ADMIN): raise orgRoleForbidden()  // 403 second
+  update organization.name, organization.updated_at
+  return serialize(organization, membership.role)
+```
+
+### Why not `@MinOrgRole()`
+
+`@MinOrgRole()` is read by `OwnerContextGuard`, and `OwnerContextGuard` acts **only** on routes
+marked `@OwnerScoped()`. The four organization routes are **not** owner-scoped - they are the
+organization surface itself, not a module mounted under an organization.
+
+So the role check has to be done explicitly in the service. It uses the same primitives as the
+guard, which is why the `403` body is identical: `hasMinRole()` and `orgRoleForbidden()` are the
+same functions the guard calls.
+
+### The order is the contract
+
+| Order | Check | Failure |
+|---|---|---|
+| 1 | Membership exists | uniform `404` |
+| 2 | Role meets `ADMIN` | uniform `403` |
+
+A non-member therefore **never** gets a `403`, and a `403` never reveals that the organization
+exists. Reversing those two lines is a security regression, not a style choice.
+
+The full route order adds the body check first: **`400` > `404` > `403`**.
+
+### Last write wins
+
+No version column, no `If-Match`, no optimistic locking. Two concurrent `PATCH` calls leave one of
+the two names, chosen by write order. This is documented as an accepted limitation.
+
+## The membership-lookup port
+
+The guard lives in `core/` and must not import `auth/`. So the dependency is inverted through a
+port:
+
+```
+backend/src/core/organization-membership-lookup.ts
+  export const ORGANIZATION_MEMBERSHIP_LOOKUP = Symbol(...)
+  export interface OrganizationMembershipLookup {
+    findRole(userId: number, orgId: number): Promise<OrgRole | null>
+    findMembership(userId: number, orgId: number): Promise<MembershipView | null>
+  }
+```
+
+`OrganizationService` implements it. The guard injects `ORGANIZATION_MEMBERSHIP_LOOKUP`.
+
+### Why `useExisting` matters
+
+The binding in `AuthModule` must use **`useExisting`**, not `useFactory` and not a second provider
+entry:
+
+```
+useExisting: OrganizationService
+```
+
+- `useExisting` binds the port token to the **existing** service instance.
+- `useFactory` would construct a **second** instance, with its own dependencies and state.
+- A second provider entry would do the same.
+
+The failure mode with two instances is quiet: the controller and the guard talk to different
+objects. Nothing errors. It only becomes visible if the service ever holds request-scoped state or
+caches a lookup - at which point the guard and the controller disagree.
+
+### Why the port has two methods
+
+| Method | Why it exists |
+|---|---|
+| `findRole` | The guard's common path - only the rank is needed for `hasMinRole()` |
+| `findMembership` | Callers that need the row itself, not just the rank |
+
+Splitting them keeps the hot path minimal: the role comparison reads a role, not a full entity.
 
 ## What the service does not do
 
-- **It does not define routes.** That is `OrganizationController`.
-- **It does not serialize responses.** That is `organization-response.ts` - see
-  [Response](./response.md).
-- **It does not decide the cache class.** That is declared on the controller.
-- **It does not validate the name's syntax.** `OrganizationNameDto` does that before the service
-  runs.
-- **It does not authenticate.** `JwtGuard` does, and only `approved` users get through.
-- **It does not implement joining, leaving, transferring or closing.** None of those exist. See
-  [Roadmap](./roadmap.md).
+| Not done | Where it happens instead |
+|---|---|
+| Reading the role from input | Never - the role is written by `create` and read from the DB |
+| Trusting a cached role | The guard re-reads on every request |
+| Filtering by owner | The organization surface addresses by `:orgId`; owner filters are for owner-scoped modules |
+| Deciding cache class | `@CachePolicy` on the controller |
+| Serializing member lists | The serializer has no such field |
+| Deleting organizations | Not built (#83) |
+| Removing members | Not built (#82) |
 
-## Wiring
+## Transaction boundaries
 
-```
-AuthModule
-  providers: [ ..., OrganizationService, { provide: ORGANIZATION_MEMBERSHIP_LOOKUP, useExisting: OrganizationService } ]
-  exports:   [ OrganizationService ]
+| Operation | Transaction scope |
+|---|---|
+| `create` | The organization insert **and** the membership insert |
+| `rename` | A single row update - no multi-row invariant at risk |
 
-OrganizationController  --injects-->  OrganizationService
-OwnerContextGuard       --injects-->  ORGANIZATION_MEMBERSHIP_LOOKUP  (fulfilled by OrganizationService)
-```
+`create` is the only method where a partial failure would break an invariant. If the membership
+insert failed outside the transaction, the organization would exist with zero members and be
+unreachable by anyone.
 
-- `useExisting` means there is **one instance**, not two: the same object is both the concrete
-  service and the port implementation.
-- Other modules inject the **port**, never the `auth` service class, so the dependency direction
-  stays `module -> core`.
+## Consequences for a change
 
-## Rules a reviewer should enforce
+| Change | What must be preserved |
+|---|---|
+| Add a membership writer (invite, join) | The "exactly one owner" rule, inside the new writer's own transaction. Nothing in the schema will catch a violation |
+| Add a route under an organization | Mark it `@OwnerScoped()` and use `@MinOrgRole()` - do **not** replicate the manual check from `rename` |
+| Change the role minimum | Update the service check, the documented capability table, and the frontend `ACTIONS` together |
+| Add a response field | `organization-response.ts` is an allowlist - a new column is not automatically public |
 
-From the module's `data-access` checklist, as it applies to this service:
-
-1. Organization routes outside the owner-scoped mechanism **check the role in the service** - as
-   `rename` does.
-2. Record-dependent rules are checked in the service and **fail closed** - the documented case is
-   editing a payment-generated transaction, which needs `admin`.
-3. The role **never comes from input**: only from the DB membership, via `findRole`.
-4. The **404 comes before any 403**.
-5. The **403 body is uniform**, naming neither the resource nor the role.
-
-See [Security](./security.md).
-
-## Failure modes and their answers
-
-| Situation | Where it is caught | Answer |
-|---|---|---|
-| Unknown, malformed or foreign `:orgId` | `parseOrgId()` / membership lookup | uniform `404` |
-| Caller is not a member (global admin included) | membership lookup | uniform `404` |
-| Caller is a member with too low a role on rename | `OrganizationService.rename` | uniform `403` |
-| Body carries `role` or `organizationId` | `@StrictBody()` / `OrganizationNameDto` | `400 VALIDATION_FAILED` |
-| Name empty, over 255 code points, or with control characters | `OrganizationNameDto` | `400 VALIDATION_FAILED` |
-| No `access_token`, or a `pending` / `denied` user | `JwtGuard` gate | `401` |
+The second row is the one most likely to be got wrong: `rename` is a template for the organization
+surface, not for owner-scoped modules. Modules take the decorator path.
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages name this service, state its role, and quote its two write-side method
-names and two read-side method names. They do **not** contain:
+The project documentation states the single-writer rule, the `useExisting` binding, the role check
+in `rename`, and the membership port. It does **not** contain:
 
-- the class source: constructor, injected repositories, method signatures and return types;
-- the **names of the methods that back `GET /orgs.json` and `GET /orgs/:orgId.json`** - the docs
-  only say the controller delegates to the service;
-- how the transaction is opened (TypeORM `DataSource.transaction`, a transaction manager, or a
-  repository call);
-- whether `create` uses the repository's `save` or an explicit `insert`;
-- the exact error thrown on the `404` path (`NotFoundException` versus a custom class) and where
-  it is constructed;
-- whether `rename` re-reads the membership or receives it from the controller.
+- the **source** of `OrganizationService`, nor its exact method signatures beyond the port;
+- whether `create` uses an explicit `QueryRunner` transaction or a repository-level one;
+- whether `listForUser` joins in SQL or loads memberships and then their organizations;
+- the shape of `MembershipView` returned by `findMembership`;
+- whether `findOne` and `rename` share a private loader, or each call `findMembership` separately;
+- any error handling for a duplicate membership - impossible today, since `create` is the only
+  writer and always writes one row;
+- whether the service caches anything per request.
 
-Read `backend/src/auth/organization.service.ts` for the authoritative version. Nothing on this page
-claims to be a transcription of it.
+Read `backend/src/auth/organization.service.ts` and `backend/src/auth/auth.module.ts` for the
+authoritative version. Nothing on this page is inferred beyond what the docs state.
