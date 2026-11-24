@@ -199,21 +199,25 @@ easier than file by file.
 
 If the goal is runnable pages rather than a complete mirror:
 
-1. **Routing**: `routes.js`, `HashRouteResolver.js`, `Router.js`, `Route.js`, `sectionTarget.js`,
-   `hashQuery.js`.
+1. **Routing** (6 of 7): `routes.js`, `HashRouteResolver.js`, `Router.js`, `Route.js`,
+   `sectionTarget.js`, `hashQuery.js`. `redirects.js` is imported by the router but is not
+   organizations-specific.
 2. **Context**: `ownerContext.js`, `ContextStorage.js`, `entryResolution.js`.
 3. **Permissions**: `orgPermissions.js`.
 4. **Provider**: `OwnerContextProvider.jsx`, `useOwnerContext.js`, `useCan.js`,
    `OrgListController.js`, `forbiddenRefreshEffect.js`.
-5. **Client**: `OrganizationsClient.js`, `ApiClient.js`, `ApiError.js`, `PermissionEvents.js`,
-   `AuthSession.js`, `AuthStatus.js`, `AuthEvents.js`.
+5. **Client** (7 of 9): `OrganizationsClient.js`, `ApiClient.js`, `ApiError.js`,
+   `PermissionEvents.js`, `AuthSession.js`, `AuthStatus.js`, `AuthEvents.js`.
 6. **Pages**: the three pages, the five controllers, the two helpers.
 7. **Switcher**: `ContextSwitcher.jsx`, `ContextSwitcherController.js`,
    `ContextSwitcherHelper.jsx`, `Header.jsx`.
 8. **Shared**: `NotFound.jsx`, `PermissionDenied.jsx`.
 
-That is **37 files**. The 16 specs and `isSessionExpired.js`, `pickDefined.js`, `redirects.js` are
-the remainder.
+That is **38 files**: 6 + 3 + 1 + 5 + 7 + 10 + 4 + 2 = 38.
+
+The remaining 19 of the 57 are the 16 specs, plus `redirects.js`, `isSessionExpired.js` and
+`pickDefined.js`. Adding those three to the minimum set brings it to 41; the specs close the gap to
+57.
 
 ## Checklist
 
@@ -238,4 +242,4 @@ the remainder.
 | `App.jsx`, `main.jsx`, `AppController.js` | Entry point and route dispatcher. Project-wide |
 | `LoginModalEvents.js`, `LoginModalController`, `useLoginModal`, `useDeviceCountdown` | The login modal. Only needed if the replica keeps the login flow |
 | `utils/locale/` | Locale loading. Not referenced by the organization pages |
-| Build configuration | `vite.config.*`, `package.json`, `eslint.config.mjs`, `specs/support/jsx-loader.mjs` is listed but the surrounding test runner config is not |
+| Build configuration | `vite.config.*`, `package.json`, `eslint.config.mjs`. `specs/support/jsx-loader.mjs` is listed because no spec runs without it |
