@@ -1,22 +1,15 @@
 # Organizations - General
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
+Hub: [Organizations](../orgs.md).
 
 ## What an organization is
 
 Organizations let domain data belong to a group of users instead of a single user. Any module
-may reuse the concept, so it lives in the `auth` module next to `User` - not inside a domain
-module such as `bank`.
+may reuse the concept, so it lives next to the user entity - not inside a domain module.
 
-Decided by Epic [#26](https://github.com/darthjee/ward/issues/26), with sub-issues
-[#28](https://github.com/darthjee/ward/issues/28) and
-[#40](https://github.com/darthjee/ward/issues/40). Backend built by
-[#46](https://github.com/darthjee/ward/issues/46), frontend by
-[#47](https://github.com/darthjee/ward/issues/47). Role enforcement comes from the
-*Organization permission system* epic
-[#81](https://github.com/darthjee/ward/issues/81), built by
-[#143](https://github.com/darthjee/ward/issues/143) (backend) and
-[#144](https://github.com/darthjee/ward/issues/144) (frontend).
+Epic #26, with sub-issues #28 and #40. Backend built by #46, frontend by #47. Role enforcement
+comes from the *Organization permission system* epic #81, built by #143 (backend) and #144
+(frontend).
 
 ## Summary
 
@@ -47,7 +40,7 @@ as the organization. Any future writer of memberships must preserve that invaria
 
 ### Organizations are optional
 
-Registration touches only `auth_users`: no organization and no membership are created. The first
+Registration touches only the user table: no organization and no membership are created. The first
 organization spec (#28) auto-created one at registration; #40 reversed that before it was built.
 Users create organizations from the **Create organization** entry of the context switcher,
 through `POST /orgs.json`.
@@ -74,8 +67,7 @@ Each module declares a single ownership kind and never mixes both:
 
 The user reference means **owner, never creator**: an organization record has `user_id` `NULL`
 even though a member created it, so a personal query can never return it. There is no
-`created_by` column (see the *Authorship / audit trail* epic,
-[#95](https://github.com/darthjee/ward/issues/95)).
+`created_by` column (see the *Authorship / audit trail* epic, #95).
 
 ### Personal is a context label only
 
@@ -84,7 +76,7 @@ context in which the JWT user operates on their own data.
 
 ## Roles at a glance
 
-Roles are ranked `user` < `admin` < `owner` (`backend/src/core/org-role.ts`); a role allows
+Roles are ranked `user` < `admin` < `owner` (`org-role.ts` in the core layer); a role allows
 everything a lower role allows.
 
 | Role | May |
@@ -99,10 +91,9 @@ everything a lower role allows.
 - The role **never comes from input**: it is read only from the DB membership, re-read on every
   request, with no caching.
 
-Organization roles are **distinct from Ward's global admin role** (`User.isAdmin` /
-`@AdminOnly()`). The global `is_admin` grants **no** organization access: a Ward admin who is not
-a member gets the same 404 as anyone else. Being an organization `owner` grants nothing outside
-that organization.
+Organization roles are **distinct from the global admin role** (a platform-level `isAdmin` flag).
+The global admin grants **no** organization access: an admin who is not a member gets the same 404
+as anyone else. Being an organization `owner` grants nothing outside that organization.
 
 ## Security posture
 
@@ -111,7 +102,7 @@ that organization.
   record exists.
 - **Uniform 404.** An unknown, non-numeric or foreign `:orgId`, and a non-member (a global admin
   included), all answer the same body.
-- **No `is_admin` bypass** anywhere in the organization path.
+- **No global-admin bypass** anywhere in the organization path.
 - **Personal routes carry no user id.** Personal always means the JWT user, so another user's
   personal data cannot be addressed.
 - **No client-supplied owner or role.** `organizationId` comes only from the URL, after the
@@ -119,7 +110,7 @@ that organization.
 - **Minimal responses.** Organization routes return only `id`, `name`, the caller's `role` and
   timestamps - never member lists or other users' ids.
 - **Personal data is owner-only**: never visible to organization members (even of an organization
-  the owner belongs to) nor to the global `is_admin`.
+  the owner belongs to) nor to the global admin.
 
 ## What exists today
 
