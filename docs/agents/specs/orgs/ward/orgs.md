@@ -67,6 +67,11 @@ read alone - each one restates what it needs.
 | [Roadmap](./orgs/roadmap.md) | The six open issues and what each would break |
 | [Examples](./orgs/examples.md) | Concrete requests and responses for the four routes |
 
+### 6. Code Samples
+| Page | Covers |
+|---|---|
+| [code sample](./orgs/code-sample.md) | Links to samples of code used by other projects implementing it |
+
 ## The short version
 
 If you read nothing else, these six facts carry the design:
