@@ -1,113 +1,212 @@
 # Organizations - Glossary
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [General](./general.md), [Models](./models.md), [Roles](./roles.md),
-[Owner context](./owner-context.md).
+Hub: [Organizations](../orgs.md).
 
 ## Why this page exists
 
-The organization domain uses one word - **owner** - for two different things, and uses the word
-**personal** for something that is not an entity. Most misreadings of this module come from
-those two ambiguities. This page fixes the vocabulary before any other page uses it.
+Most misreadings of this domain come from **two words that carry two meanings each**. This page
+fixes the vocabulary first, so the other pages can be read without ambiguity.
 
-## The two meanings of "owner"
+Read this before writing about organizations, naming a variable, or reviewing a change in this area.
 
-Read this table before anything else.
+## The first ambiguity: "owner"
 
-| Term | Means | Where it lives | Does not mean |
-|---|---|---|---|
-| **owner** (role) | A value of `OrganizationMembership.role`. The highest role in the ranking `user` < `admin` < `owner` | `auth_organization_memberships.role`; type `OrgRole` in `backend/src/core/org-role.ts` | It does **not** name a column on the organization, and it is not a flag on `Organization` |
-| **owner** (of a record) | The single context - a user or an organization - that a domain record belongs to | The `user_id` / `organization_id` pair on an owner-root record of a user-or-organization-owned module (today only `bank`) | It is **not** the creator of the record and not the membership role |
+The word appears in two unrelated senses, and a sentence using both is unreadable without knowing
+which is which.
 
-Whenever a document in this series says **owner** without qualification:
+| Term | Meaning | Where it lives |
+|---|---|---|
+| **owner** (role) | The highest of the three membership roles, `owner` | `OrganizationMembership.role` |
+| **owner** (of a record) | The user or the organization a domain record belongs to | `user_id` / `organization_id` on the record |
 
-- in the context of memberships, roles and permissions, it means the **role**;
-- in the context of domain data, filtering and queries, it means the **record owner**.
+Consequences of confusing them:
 
-The docs under `docs/agents/` use the phrase *"here owner means a record's owner context, not the
-membership role"* at exactly the points where the ambiguity would otherwise appear.
+- **An organization `owner` is not the owner of the organization's records.** The records are owned
+  by the organization itself, not by the person who holds the `owner` role.
+- **A record's owner has no role.** `owner` as a role is a property of a membership; a record's owner
+  is a pair of nullable columns.
+- **An organization record has `user_id` `NULL`.** The user who created it is not its owner, even
+  though they hold the `owner` role in that organization.
 
-## Ownership vocabulary
+The codebase keeps them apart by naming: the membership role is always `role` of type `OrgRole`; the
+record owner is always `ownerId` / `ownerContext`. See [Roles](./roles.md) and
+[Owner context](./owner-context.md).
+
+## The second ambiguity: "Personal"
+
+**Personal is a context label, not an entity.**
+
+| Wrong reading | Correct reading |
+|---|---|
+| "Personal" is a special organization | It is the absence of an organization |
+| "Personal" is a flag on `Organization` | No such flag exists |
+| "Personal" is a row in a table | There is no table |
+| "Personal" is a fourth role | No - in Personal the role is `owner`, the same value |
+
+- The **personal context** is the mode where the JWT user operates on their own data.
+- The backend path is `/<module>/...` - no `/orgs/:orgId/` segment and no user id either.
+- The UI path is `#/<module>/...`.
+- `ownerRole(ctx)` returns **`owner`** for the personal context, which is why `can()` needs no
+  personal-specific branch.
+
+An earlier spec proposed auto-creating an organization at registration, which would have made
+"Personal" a passing state rather than a permanent one. It was reversed before being built - so
+**Personal is a durable context, not a bootstrap gap**.
+
+## Core entities
 
 | Term | Definition |
 |---|---|
-| **owner-root** | A record that carries the owner itself, as two nullable, indexed, **logical** references (`user_id`, `organization_id`) with a DB check constraint that exactly one is set. Every module of the user-or-organization-owned kind has one owner-root table |
-| **child record** | A record whose owner is not stored: it **inherits the owner through its root**. Copying the owner onto a child is a defect |
-| **user-owned module** | A module where each record belongs to exactly one user through a logical `userId`. The default for the planned `protocol`, `car-performance` and `links` |
-| **user-or-organization-owned module** | A module where every owner-root record belongs to either a user or an organization. `bank` is the only one today |
-| **owner as owner, never creator** | The rule that an organization record has `user_id` `NULL` even though a member created it, so a personal query can never return it. There is no `created_by` column (see #95) |
-| **logical reference** | A reference enforced by application code, not by a database foreign key, because the two tables live in different modules. The owner references of user-or-organization-owned modules are logical; the references inside `auth` are **real** FKs |
-| **real FK** | A database-enforced foreign key. `auth_organization_memberships` uses real FKs to `auth_organizations` and `auth_users`, both `ON DELETE RESTRICT` |
+| **Organization** | The group entity. A name and timestamps. **No owner column.** Table `auth_organizations` |
+| **OrganizationMembership** | Joins a user to an organization and **carries the role**. Table `auth_organization_memberships` |
+| **Membership** | Short for `OrganizationMembership` |
+| **OrgRole** | The role type: `owner`, `admin` or `user` |
 
-## Context vocabulary
+There are **two entities, and only two**. See [Models](./models.md).
 
-| Term | Definition |
-|---|---|
-| **active context** | Which owner the current request works on: Personal or one organization. It lives **in the URL**, so several browser tabs can work on different contexts at once |
-| **Personal** | The context label for the current user's own data: backend `/<module>/...`, UI `#/<module>/...`. It is **a context label only** - not an organization and not a flag on `Organization` |
-| **personal prefix** | A backend route without `:orgId`, for example `/bank/accounts.json`. The owner is always the JWT user, never the URL or the body |
-| **organization prefix** | A backend route with `/orgs/:orgId/...`. `:orgId` is parsed by `parseOrgId()` and the membership is checked on every request |
-| **context switcher** | The UI control listing Personal, each of the user's organizations, and **Create organization**. With zero organizations it shows only Personal and Create organization |
-| **remembered context** | The frontend's stored copy of the last used context. A context the user no longer belongs to is dropped and the UI falls back to Personal |
-
-## Authorization vocabulary
+## Roles
 
 | Term | Definition |
 |---|---|
-| **membership** | The `OrganizationMembership` row joining a user to an organization, carrying the role. This row, and only this row, is the source of truth for what the user may do |
-| **role** | `owner`, `admin` or `user`, stored on the membership, set at creation, and **re-read from the DB on every request** with no caching |
-| **OrgRole** | The role type and its helpers, defined in `backend/src/core/org-role.ts`: the ranking, `hasMinRole(role, min)` and `orgRoleForbidden()`. It lives in `core/` so `core` never imports `auth`; `auth`'s `MembershipRole` re-exports it |
-| **MembershipRole** | The `auth`-side name that re-exports `OrgRole`. Same type, two import paths, one definition |
-| **personal context counts as owner** | The rule that `ownerRole(ctx)` returns `owner` when the context is `{ kind: 'user', userId }`, so the JWT user may do everything on their own data |
-| **global admin** / **`is_admin`** | Ward's platform-level administrator (`User.isAdmin`, `@AdminOnly()`). It covers **accounts only** and grants **no** organization access. Distinct from every organization role |
-| **uniform 404** | One single response body for an unknown, non-numeric or foreign `:orgId`, and for a non-member - a global admin included |
-| **uniform 403** | One single response body for every role failure, naming neither the resource nor the required role |
-| **404 before 403** | The ordering rule: the membership check always runs first, so a 403 never tells a non-member that an organization exists |
-| **no `is_admin` bypass** | The rule that a Ward admin who is not a member gets the same 404 as anyone else, on every organization path |
+| **role** | A membership's rank inside one organization. Never global, never from input |
+| **owner** (role) | Highest rank. Everything `admin` can do. The organization's creator |
+| **admin** | Destructive and structural writes: deletes, account structure, payment transaction edits, rename |
+| **user** | Reads, plus everyday writes |
+| **ranking** | `user` < `admin` < `owner`. A role allows everything a lower one allows |
+| **`hasMinRole(role, min)`** | The comparison used for every role check |
+| **`orgRoleForbidden()`** | Builds the one uniform `403` body |
 
-## Mechanism vocabulary
+Reads require **membership**, not a minimum role: every `GET` is open to `user`.
 
-| Term | Definition |
-|---|---|
-| **`OwnerContext`** | The resolved owner of a request, as a discriminated union: `{ kind: 'user', userId }` or `{ kind: 'organization', organizationId, role }`. Stored on `request.ownerContext` |
-| **`OwnerScope`** | The same union **without** `role`, also used for owners derived from a record |
-| **`OwnerContextGuard`** | The global `APP_GUARD` (`backend/src/core/owner-context.guard.ts`), registered after `JwtGuard`, that resolves the owner in one place so the check cannot be forgotten per route. It does nothing on routes without `@OwnerScoped()` |
-| **`@OwnerScoped()`** | Route metadata that activates `OwnerContextGuard` on that route |
-| **`@OwnerScopedController(path)`** | Controller decorator that mounts a controller under both `<path>` and `orgs/:orgId/<path>`, adds `@OwnerScoped()`, and sets the cache class to `user-scoped` - so mounting, scoping and cache class cannot be separated |
-| **`@CurrentOwner()`** | Handler decorator that injects the resolved `OwnerContext`. Services receive only this context, never a raw id |
-| **`@MinOrgRole(role)`** | Route decorator declaring the minimum role for that route. `OwnerContextGuard` reads it - handler first, then class - and throws the uniform 403 when the role is too low |
-| **`ownerWhere()` / `ownerSqlWhere()`** | The helpers in `core/owner-context.ts` that build the owner filter for TypeORM `where` objects and for raw SQL, so every query is filtered by owner |
-| **`ORGANIZATION_MEMBERSHIP_LOOKUP`** | The port the guard depends on, so `core/` never imports `auth/`. Its single method, `findRole(userId, orgId)`, returns the member's `OrgRole` or `null` |
-| **`parseOrgId()`** | The strict parser in `core/parse-org-id.ts`. It takes `:orgId` as a raw string, so `1e3` never becomes `1000` |
-| **`@StrictBody()`** | The pipe in `core/strict-validation.pipe.ts` through which handlers take bodies. Unknown fields - owner fields included - answer 400 |
+**No action is owner-only today.** Every action the `owner` can take, an `admin` can take too. That
+is a statement about the current implementation, not about the design intent.
 
-## Data vocabulary
+## The global admin
 
 | Term | Definition |
 |---|---|
-| **`Organization`** | The entity in `auth_organizations`: `id`, `name`, `created_at`, `updated_at`. No owner column |
-| **`OrganizationMembership`** | The entity in `auth_organization_memberships`: `id`, `organization_id`, `user_id`, `role`, `created_at`, `updated_at` |
-| **exactly one owner** | The invariant that an organization has exactly one `owner` membership at all times. **Not a DB constraint**: it holds because `OrganizationService#create` is the only code that writes memberships, always writing one `owner` row in the same transaction as the organization |
-| **membership lookup index** | The unique index on `(organization_id, user_id)`. It enforces one membership per user per organization and also serves `findRole` |
+| **global admin** / **`is_admin`** | A **platform** role, stored on the user record. Grants **no** organization access |
+| **`AdminGuard`** / **`@AdminOnly()`** | The mechanism for the global admin. Separate from organization roles, and it does **not** bypass them |
 
-## Cache vocabulary
+The distinction matters because it is the most common wrong assumption: an admin who is not a member
+of an organization gets the **same uniform `404`** as anyone else. See [Security](./security.md).
+
+## Context
 
 | Term | Definition |
 |---|---|
-| **`never`** | The cache class for writes. Sends `X-Skip-Cache: true` and `Cache-Control: no-store` |
-| **`user-scoped`** | The cache class for reads, cached per caller. An organization id in the URL does **not** make a response public; personal routes carry no owner in the URL, so they **must** be `user-scoped` with no exception |
+| **context** | Which owner a request works for: Personal or one organization |
+| **owner context** | The resolved form of that, stored on the request |
+| **`OwnerContext`** | The discriminated union `{ kind: 'user' } \| { kind: 'organization', organizationId, role }` |
+| **`OwnerScope`** | The same union **without** `role` - used where the owner is derived from a record rather than the request |
+| **personal context** | No organization. Owner is the JWT user |
+| **organization context** | One organization selected through `:orgId` |
+
+### Prefixes
+
+| Term | Definition |
+|---|---|
+| **personal prefix** | `/<module>/...` - no owner in the URL at all |
+| **organization prefix** | `/orgs/:orgId/<module>/...` |
+| **stripped path** | The path after `/orgs/<seg>` is removed - what the frontend routes against |
+
+## Access control
+
+| Term | Definition |
+|---|---|
+| **`OwnerContextGuard`** | The global `APP_GUARD` that resolves the owner on every request and acts only where `@OwnerScoped()` exists |
+| **owner-scoped route** | A route carrying `@OwnerScoped()`, or mounted through `@OwnerScopedController()`. The guard is active on it |
+| **`@OwnerScopedController(path)`** | Mounts a controller under both prefixes, adds `@OwnerScoped()` and sets `user-scoped` - inseparably |
+| **`@CurrentOwner()`** | Injects the resolved `OwnerContext` into the handler |
+| **`@MinOrgRole(role)`** | Declares a route's minimum role, read by the guard |
+| **`ownerWhere()`** | Builds the owner filter for TypeORM `where` objects |
+| **`ownerSqlWhere(scope, alias)`** | Builds it for raw SQL, bound to a table alias |
+| **membership lookup** | The `ORGANIZATION_MEMBERSHIP_LOOKUP` port, implemented by `OrganizationService` |
+| **`findRole(userId, orgId)`** | The port method. Returns the `OrgRole` or `null` |
+| **`findMembership(userId, orgId)`** | Returns the membership row itself, for callers that need more than the rank |
+| **`parseOrgId()`** | Parses `:orgId` from a **raw string**, so `1e3` is rejected rather than coerced to `1000` |
+| **`@StrictBody()`** | Rejects unknown body fields. What closes the body as an owner source |
+| **single-writer rule** | `OrganizationService#create` is the only code that writes memberships |
+
+## Data model
+
+| Term | Definition |
+|---|---|
+| **user-owned module** | Each record belongs to one user. The default kind |
+| **user-or-organization-owned module** | Records may belong to a user or an organization. `bank` is the only one today |
+| **owner-root record** | A record that holds the owner: two nullable, indexed, **logical** references - `user_id` and `organization_id` - with a check constraint that exactly one is set |
+| **child record** | A record that **inherits** the owner through its root and never stores a copy |
+| **logical reference** | A column that names another table's id **without a database foreign key**. `bank` tables reference `auth_organizations` this way |
+| **`ON DELETE RESTRICT`** | The constraint on both membership foreign keys: a row cannot be deleted while referenced |
+
+The logical-reference distinction matters at deletion time: the database will not stop an orphan in
+`bank`, so the application must.
+
+## Errors
+
+| Term | Definition |
+|---|---|
+| **uniform 404** | One body for every resolution failure: malformed id, unknown id, foreign id, non-member, non-member global admin |
+| **uniform 403** | One body for every role failure. Names neither the resource nor the required role |
+| **404 before 403** | The ordering rule: membership is resolved before the role is compared, so a `403` is only reachable by a member |
+| **`VALIDATION_FAILED`** | The `400` code for an invalid or non-whitelisted body |
+
+The full bodies are in [Security](./security.md).
+
+## Test vocabulary
+
+| Term | Definition |
+|---|---|
+| **coverage spec** | `min-org-role.coverage.spec.ts`. Fails the build on a plain `@Body()` or an owner-scoped route declared `public` |
+| **`data-access` checklist** | The ten review rules a reviewer applies. Not automated |
+| **structural failure** | Visible in the decorators, without reasoning about behaviour - the coverage spec's domain |
+| **semantic failure** | Passes the structural spec and breaks the contract - e.g. a query without `ownerWhere()`. The checklist's domain |
+
+See [Tests](./tests.md).
 
 ## Status vocabulary
 
-| Term | Definition |
+Two words used consistently across this documentation set:
+
+| Term | Means |
 |---|---|
-| **implemented** | Behaviour that exists in the code today and is covered by specs |
-| **target** | Behaviour that is documented as intended but **not built**. Appears in [Roadmap](./roadmap.md) with its issue number |
+| **`implemented`** | The behaviour exists and is covered by specs |
+| **`target`** | Documented as intended, **not built**. Every `target` item carries an issue number |
 
-## Ground rules that follow from the vocabulary
+Never read `target` as "works but undocumented", and never read `implemented` as "complete". The
+organization surface is implemented with **one member per organization** and no way to join.
 
-1. **Never say "the owner column"** about an organization - there is none. Ownership lives only in the membership role.
-2. **Never say "creator"** where the docs mean record owner. An organization record has `user_id` `NULL`.
-3. **Never call Personal an organization.** It is a context label.
-4. **Never treat `is_admin` as an organization role.**
-5. **Never take `role` or `organizationId` from input.** The role comes only from the DB membership; the organization comes only from the URL after the membership check.
+## Terms that do not exist
+
+Listed because each one has been assumed at some point:
+
+| Non-existent term | Reality |
+|---|---|
+| `OrganizationOwner` | No such entity. Ownership is the membership role |
+| `OrganizationSettings` | No such entity. The organization is a name and timestamps |
+| `OrganizationInvite` | No such entity. Joining is not built |
+| `created_by` | No such column. The user reference on a record means **owner**, never creator |
+| `member_count` | Not returned by any response |
+| `slug` | Organizations have no slug. Only `id` and `name` |
+| `ownerId` on the organization | No such column |
+| Personal organization | Personal is a context, not an organization |
+| Owner-only action | None exists today |
+
+## What is not documented in the repository
+
+The project documentation states the entities, the roles, the context union, the port names and the
+error vocabulary. It does **not** contain:
+
+- a **glossary section as such** - the terms on this page are assembled from the pages that define
+  them, not quoted from a single source;
+- the **declaring file** of the `OwnerContext` and `OwnerScope` types, though
+  `backend/src/core/owner-context.ts` is the most likely candidate;
+- whether the codebase uses `ownerId` and `ownerContext` as the naming convention this page
+  describes - the docs distinguish the concepts, not the identifiers chosen for them;
+- the naming of the `OwnerScope` variant used for record-derived owners beyond the union shape;
+- any term for a record that is **neither** user-owned nor user-or-organization-owned, because no
+  such third kind exists.
+
+Nothing on this page invents a definition: each row restates a meaning established in
+[Models](./models.md), [Roles](./roles.md), [Owner context](./owner-context.md) or
+[Security](./security.md).
