@@ -1,157 +1,198 @@
 # Organizations - Models
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Glossary](./glossary.md), [Tables](./tables.md), [Migrations](./migrations.md),
-[Service](./service.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-There are **two entities**, both in the `auth` module:
+The domain has **two entities and no third one**:
 
-- **`Organization`** - `backend/src/auth/entities/organization.entity.ts`
-- **`OrganizationMembership`** - `backend/src/auth/entities/organization-membership.entity.ts`
+| Entity | Table | Holds |
+|---|---|---|
+| `Organization` | `auth_organizations` | The organization itself: a name and timestamps |
+| `OrganizationMembership` | `auth_organization_memberships` | The join between a user and an organization, **and the role** |
 
-There is no third entity. There is no `OrganizationOwner`, no `OrganizationInvite`, no
-`OrganizationSettings`.
+That is the whole model. There is no `OrganizationOwner`, `OrganizationInvite`,
+`OrganizationSettings`, invitation table or audit table. Ownership and role both live in the
+membership; the organization row carries neither.
 
 ## `Organization`
 
-Table: `auth_organizations`.
+### Fields
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `id` | int | yes | Primary key |
-| `name` | varchar(255) | yes | Trimmed on write. **Not unique** - two organizations may share a name. Never logged |
-| `created_at` | timestamp | yes | Set on insert |
-| `updated_at` | timestamp | yes | Updated on every write |
+| Field | Type | Notes |
+|---|---|---|
+| `id` | integer | Primary key, auto-increment |
+| `name` | string, 255 | Trimmed before storage; validated on write; **not unique** |
+| `created_at` | timestamp | Set on insert |
+| `updated_at` | timestamp | Updated on every write |
+
+Four fields. Nothing else.
 
 ### What is deliberately absent
 
-**There is no owner column.** Ownership lives only in the membership role. Do not add an
-`owner_id`, a `creator_id` or a `created_by`: the absence is a design decision, not an omission.
-See *owner as owner, never creator* in the [Glossary](./glossary.md).
+| Absent | Why |
+|---|---|
+| **`owner_id` / `ownerId`** | Ownership is the membership role. A column would duplicate the source of truth and could disagree with it |
+| **`created_by`** | The creator is not recorded. This is the #95 gap - see [Roadmap](./roadmap.md) |
+| **`slug`** | There is no URL-friendly identifier. Routes address the organization by `id` |
+| **`description`** | Not part of the model. The only free-text field in the domain is `name` |
+| **`status` / `archived_at`** | There is no soft delete and no lifecycle column. Closing an organization is not built |
+| **`settings` / configuration** | No settings entity and no JSON column |
+| **`member_count`** | Not stored. There is no count to denormalize because there is no member list to show |
+| **`is_personal`** | "Personal" is a context label, not a flag. There is no personal organization |
 
-There is also no `slug`, no `description`, no `logo`, no `status` and no `is_personal` flag.
-"Personal" is a **context label**, not an organization and not a flag on this row.
+The absence of `owner_id` is the single most important entry in that table: it is why the "exactly
+one owner" rule can only be enforced by the service, and why the organization row cannot contradict
+the membership.
 
-### Name rules
+### Constraints on `name`
 
-- Trimmed before validation and storage.
-- Must be non-empty after trimming.
-- At most **255 code points** - counted in code points, not UTF-16 units.
-- No control characters (Unicode category `Cc`). Any other Unicode is allowed.
-- Always rendered escaped (React text, never HTML).
+| Rule | Detail |
+|---|---|
+| Trimmed | Leading and trailing whitespace removed before validation and storage |
+| Required | Empty or whitespace-only after trimming is rejected |
+| Maximum length | **255 code points** - not UTF-16 units |
+| Control characters | Rejected - Unicode category `Cc` |
+| Other Unicode | Allowed - accented letters, emoji, CJK are all valid |
+| Uniqueness | **None.** Two organizations may share a name, including two organizations of the same user |
+
+The code-point rule matters for characters outside the Basic Multilingual Plane: an emoji is **two**
+UTF-16 units but **one** code point. A validation written against `name.length` would reject a valid
+name.
 
 ## `OrganizationMembership`
 
-Table: `auth_organization_memberships`.
+### Fields
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `id` | int | yes | Primary key |
-| `organization_id` | int | yes | Foreign key to `auth_organizations`, `ON DELETE RESTRICT` |
-| `user_id` | int | yes | Foreign key to `auth_users`, `ON DELETE RESTRICT`; indexed |
-| `role` | varchar(16) | yes | One of `owner`, `admin`, `user`. Enforced per action |
-| `created_at` | timestamp | yes | Set on insert |
-| `updated_at` | timestamp | yes | Updated on every write |
-
-### Constraints at the model level
-
-- **Unique index `(organization_id, user_id)`** - one membership per user per organization. The
-  same index also serves the membership lookup, so `findRole` needs no second index.
-- Both foreign keys are **real** FKs (database-enforced), because `auth_organizations`,
-  `auth_organization_memberships` and `auth_users` all belong to `auth`. This is the opposite of
-  the owner references in user-or-organization-owned modules, which cross module boundaries and
-  are therefore **logical** only.
-
-### The `role` field
-
-- Set **when the membership is written**, and the creator always gets `owner`.
-- **Never taken from input.** `OrganizationNameDto` accepts only `name`; any other field,
-  `role` included, answers `400 VALIDATION_FAILED`.
-- **Re-read from the database on every request**, with no caching and no bypass.
-- Valid values: `owner`, `admin`, `user`. Ranked `user` < `admin` < `owner`; a role allows
-  everything a lower role allows. The type is `OrgRole` in `backend/src/core/org-role.ts`, and
-  `auth` re-exports it as `MembershipRole`.
-
-## Relations
-
-```
-auth_users                           auth_organizations
-    | 1                                    | 1
-    |                                      |
-    | n                                    | n
-    +----------< auth_organization_memberships >----------+
-                     id
-                     organization_id  -> auth_organizations (ON DELETE RESTRICT)
-                     user_id          -> auth_users         (ON DELETE RESTRICT)
-                     role             (owner | admin | user)
-                     created_at, updated_at
-```
-
-- A **user** has many memberships; a user with zero memberships is the normal state.
-- An **organization** has many memberships. Today it has exactly **one**, because there is no
-  way to join.
-- `Organization` does **not** declare an inverse `owner` relation: knowing the owner means
-  querying the membership with `role = 'owner'`.
-
-## The "exactly one owner" invariant
-
-An organization has exactly **one** `owner` membership at all times.
-
-This is **not a database constraint**. There is no partial unique index such as
-`UNIQUE (organization_id) WHERE role = 'owner'`. The invariant holds because:
-
-- `OrganizationService#create` is the **only** code that writes memberships;
-- it writes exactly one `owner` row;
-- it does so in the **same DB transaction** as the organization insert.
-
-Any new code path that creates or updates memberships must preserve that invariant by itself.
-See [Service](./service.md).
-
-## Membership lifecycle today
-
-| Operation | Exists | Who |
+| Field | Type | Notes |
 |---|---|---|
-| Insert `owner` membership | yes | `OrganizationService#create`, atomically with the organization |
-| Read a membership / role | yes | `findRole(userId, orgId)` and `findMembership(userId, orgId)` |
-| Change a role | **no** | Target behaviour, part of the deferred member-management work (#82) |
-| Remove a membership (leave) | **no** | Target behaviour (#82) |
-| Transfer ownership | **no** | Target behaviour (#82) |
+| `id` | integer | Primary key, auto-increment |
+| `organization_id` | integer | Foreign key to `auth_organizations.id`, `ON DELETE RESTRICT` |
+| `user_id` | integer | Foreign key to `auth_users.id`, `ON DELETE RESTRICT` |
+| `role` | enum or string | One of `owner`, `admin`, `user` |
+| `created_at` | timestamp | Set on insert |
+| `updated_at` | timestamp | Updated on write |
 
-Registration touches only `auth_users`: no organization and no membership are created.
+### Uniqueness
 
-## Serialization boundary
+The pair **`(organization_id, user_id)` is unique**. One membership per user per organization - a
+user cannot hold two roles in the same organization.
 
-The entities are never sent to the client directly. Organization routes return a **minimal
-shape** built by `backend/src/auth/organization-response.ts`:
+There is **no** constraint limiting how many `owner` rows an organization has. The
+"exactly one owner" rule is not a partial unique index; it is a property of the code.
+
+### Relations
+
+| Direction | Relation |
+|---|---|
+| `membership.organization` | Many-to-one to `Organization` |
+| `membership.user` | Many-to-one to `User` |
+| `organization.memberships` | One-to-many - exists as a relation, but **never serialized** |
+
+The `organization.memberships` relation is the one that must not reach a response. Loading it is
+harmless; putting it in a DTO turns four routes into an enumeration surface. See
+[Response](./response.md).
+
+## The role
+
+| Value | Rank | Meaning |
+|---|---|---|
+| `owner` | 3 | The organization's creator. Everything `admin` can do |
+| `admin` | 2 | Destructive and structural writes |
+| `user` | 1 | Reads, and everyday writes |
+
+The ranking is `user` < `admin` < `owner`, and a role allows everything a lower one allows. The
+comparison is `hasMinRole(role, min)`.
+
+**No action is owner-only today.** The `owner` value is the membership written by `create`; it does
+not yet guard anything an `admin` cannot do. That arrives with the deferred epics - see
+[Roles](./roles.md).
+
+## Ownership: where it actually lives
+
+The organization owns nothing *through a column*. The chain is:
 
 ```
-{ id, name, role, created_at, updated_at }
+Organization          id, name, timestamps        <- no owner field
+OrganizationMembership  organization_id, user_id, role
+                      ^ the only place role and membership exist
 ```
 
-- `role` is the **caller's** role in that organization, not the owner's role.
-- Member lists and other users' ids are never exposed.
-- `OrganizationMembership` is never serialized to the public API.
+For a **domain record** in a user-or-organization-owned module such as `bank`, the owner is stored on
+the record itself, as two nullable, indexed, **logical** references:
 
-See [Response](./response.md).
+| Column | Points at | Notes |
+|---|---|---|
+| `user_id` | `auth_users.id` | Set when the record is personal. **Logical reference - no FK** |
+| `organization_id` | `auth_organizations.id` | Set when the record belongs to an organization. **Logical reference - no FK** |
 
-## Cross-module ownership - not modelled here
+A database check constraint requires **exactly one** of them to be set. Neither is a foreign key,
+because those modules are deliberately separate from `auth`.
 
-Modules such as `bank` support organization ownership without adding an entity here:
+Consequence: an organization record has **`user_id` `NULL`** even though a member created it. That is
+what makes a personal query structurally unable to return it.
 
-- an owner-root record stores two nullable, indexed, **logical** references, `user_id` and
-  `organization_id`, with a DB check constraint that exactly one is set;
-- the organization reference is logical because `bank` and `auth` are separate modules;
-- child records inherit the owner through their root and never store a copy.
+## The two-entity rule, and its one violation
 
-`Organization` stays a plain `{ id, name, timestamps }` record. Knowing which records belong to an
-organization is the domain module's concern, never a column on this entity.
+The model says two entities. A domain record that belongs to an organization carries
+`organization_id` - which references a third table, `auth_organizations`, **without a foreign key**.
 
-## Not documented in the repository
+So the strict statement is:
 
-The `docs/agents/` pages specify the columns, types, constraints and rules above, but do **not**
-transcribe the TypeScript source of the entity classes: the exact ORM decorators, property
-declarations, relation decorators, index declarations and any `@Column` options are not quoted in
-the documentation. Read the two entity files directly for that level of detail. Nothing on this
-page is inferred beyond what the docs state.
+- **The organizations domain** has two entities.
+- **Modules that use organizations** add a column, never a new organization-related entity.
+- **No module has an `OrganizationOwner`-style table.** Ownership is never denormalized.
+
+## Invariants
+
+The properties a change to these models must preserve.
+
+| Invariant | Held by |
+|---|---|
+| Exactly one `owner` per organization | `OrganizationService#create` being the only membership writer - **not** a database constraint |
+| One membership per user per organization | The unique index `(organization_id, user_id)` |
+| An organization always has at least one membership | Creation writes the organization and the `owner` membership in one transaction |
+| The role is never defaulted from input | The role is hard-coded to `owner` at creation; no other writer exists |
+| A record has exactly one owner | The check constraint on `user_id` / `organization_id` in owner-root tables |
+| Personal and organization data never mix | `user_id` `NULL` on organization records |
+
+### Why "exactly one owner" is the fragile one
+
+Every other invariant in that table is enforced by the database. This one is not.
+
+There is no partial unique index on `role = 'owner'`. It holds today for a single reason: `create`
+is the only code path that writes a membership, and it always writes exactly one `owner`. Any change
+that introduces a second writer - invite, join, transfer, role change - must preserve it in its own
+transaction, and nothing in the schema will catch a mistake.
+
+See [Service](./service.md) and [Roadmap](./roadmap.md).
+
+## Relationship to `User`
+
+`OrganizationMembership.user_id` is a foreign key to `auth_users.id` with `ON DELETE RESTRICT`.
+
+- A user **cannot be deleted** while any membership references them.
+- A **denied** or suspended user keeps their memberships. Nothing removes them, because removing a
+  member is not built.
+- Organization data created by that user **belongs to the organization**, not to the user, and
+  outlives their access.
+- `User.isAdmin` is a **platform** flag and is not part of these models. It grants no organization
+  access.
+
+## What is not documented in the repository
+
+The project documentation states the two entities, their tables, the field set, the unique pair, the
+foreign keys and the `name` rules. It does **not** contain:
+
+- the **exact TypeScript declaration** of either entity - column decorators, nullability annotations,
+  relation options and enum versus string for `role`;
+- whether `role` is a database enum type or a `varchar` with a check;
+- the **length** declared on `role`;
+- whether `Organization` declares a relation to memberships at all, though it is implied by "never
+  serialize the memberships";
+- the exact generated column names in MySQL beyond the snake_case forms listed here;
+- whether the check constraint on owner-root tables is expressed at table level or as a trigger.
+
+Read `backend/src/auth/entities/organization.entity.ts` and
+`backend/src/auth/entities/organization-membership.entity.ts` for the authoritative version. Nothing
+on this page is inferred beyond what the docs state.
