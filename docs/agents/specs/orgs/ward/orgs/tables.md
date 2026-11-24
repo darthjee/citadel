@@ -1,198 +1,180 @@
 # Organizations - Tables
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Models](./models.md), [Migrations](./migrations.md), [Glossary](./glossary.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-Two physical tables, both in the `auth` module, both created by a single migration:
+Two tables, created by a single migration.
 
-| Table | Entity | Rows |
+| Table | Rows are | Created by |
 |---|---|---|
-| `auth_organizations` | `Organization` | The organizations themselves |
-| `auth_organization_memberships` | `OrganizationMembership` | The join between users and organizations, carrying the role |
+| `auth_organizations` | Organizations | `20261107120015-auth-create-organizations.ts` |
+| `auth_organization_memberships` | One membership per user per organization | Same migration |
 
-The `auth_` prefix is the module's convention. The original spec named them `organizations` and
-`organization_memberships`; the implementation prefixes both (see
-[Differences from the original spec](#differences-from-the-original-spec)).
+Both carry the **`auth_` prefix** because the concept lives in the `auth` module, next to the user
+table. See [Migrations](./migrations.md) for the ordering and rollback.
 
 ## `auth_organizations`
 
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | int | no | auto-increment | Primary key |
-| `name` | varchar(255) | no | - | Trimmed, required, **not unique**, never logged |
-| `created_at` | timestamp | no | insert time | |
-| `updated_at` | timestamp | no | insert time | Updated on every write |
+| Column | Type | Null | Key |
+|---|---|---|---|
+| `id` | integer | no | **PK**, auto-increment |
+| `name` | varchar(255) | no | - |
+| `created_at` | timestamp | no | - |
+| `updated_at` | timestamp | no | - |
 
 ### Indexes
 
-| Index | Columns | Kind | Purpose |
-|---|---|---|---|
-| `PRIMARY` | `id` | primary key | Row identity |
+| Index | Columns | Kind |
+|---|---|---|
+| `PRIMARY` | `id` | Primary key |
 
-That is the complete index inventory. There is **no** index on `name`, because `name` is not
-unique and is never used as a lookup key: organizations are read by `id` or listed through the
-membership join.
+**No index on `name`.** Not unique, not indexed. Two organizations may share a name, and there is no
+lookup by name anywhere in the API - the list route returns the caller's memberships ordered by `id`.
 
-### What this table does not have
+### Constraints
 
-- **No owner column** - no `owner_id`, no `creator_id`, no `created_by`. Ownership lives only in
-  the membership role.
-- **No `slug`** - the name is not unique, so there is nothing to disambiguate.
-- **No `description`, `logo`, `status`, or `is_personal` flag** - "Personal" is a context label,
-  not a row in this table.
+| Constraint | Detail |
+|---|---|
+| Primary key | `id` |
+| No unique constraint on `name` | Deliberate - see [Models](./models.md) |
+| No foreign keys out | The row references nothing |
 
 ## `auth_organization_memberships`
 
-| Column | Type | Nullable | Default | Notes |
-|---|---|---|---|---|
-| `id` | int | no | auto-increment | Primary key |
-| `organization_id` | int | no | - | FK -> `auth_organizations.id`, `ON DELETE RESTRICT` |
-| `user_id` | int | no | - | FK -> `auth_users.id`, `ON DELETE RESTRICT`, indexed |
-| `role` | varchar(16) | no | - | One of `owner`, `admin`, `user` |
-| `created_at` | timestamp | no | insert time | |
-| `updated_at` | timestamp | no | insert time | Updated on every write |
+| Column | Type | Null | Key |
+|---|---|---|---|
+| `id` | integer | no | **PK**, auto-increment |
+| `organization_id` | integer | no | **FK** > `auth_organizations.id`, `ON DELETE RESTRICT` |
+| `user_id` | integer | no | **FK** > `auth_users.id`, `ON DELETE RESTRICT` |
+| `role` | enum or varchar | no | - |
+| `created_at` | timestamp | no | - |
+| `updated_at` | timestamp | no | - |
 
 ### Indexes
 
 | Index | Columns | Kind | Purpose |
 |---|---|---|---|
-| `PRIMARY` | `id` | primary key | Row identity |
-| unique | `(organization_id, user_id)` | unique | One membership per user per organization. **Also serves the membership lookup** |
-| non-unique | `user_id` | index | Listed explicitly in the docs: `user_id` is indexed |
+| `PRIMARY` | `id` | Primary key | - |
+| unique | `(organization_id, user_id)` | **Unique composite** | One membership per user per organization |
+| `idx` | `user_id` | Secondary | Lists a user's organizations - the query behind `GET /orgs.json` |
 
-- The **unique composite index is the only lookup path** `findRole(userId, orgId)` needs, so
-  `ORGANIZATION_MEMBERSHIP_LOOKUP` performs one lookup with no extra index.
-- There is **no** partial unique index such as `UNIQUE (organization_id) WHERE role = 'owner'`.
-  The "exactly one owner" rule is enforced by code, not by the database. See
-  [Models](./models.md) and [Service](./service.md).
+The composite unique index is the one that makes "one membership per user per organization" a
+database rule rather than a convention.
 
-### The `role` column
+The `user_id` index is the one `GET /orgs.json` depends on: it looks up memberships by user.
 
-| Value | Rank | Meaning |
-|---|---|---|
-| `user` | 1 | Read everything; everyday writes |
-| `admin` | 2 | Everything `user` may, plus destructive and structural writes |
-| `owner` | 3 | Everything `admin` may; the organization's creator |
+**There is no index on `role`**, and there is **no partial unique index on `role = 'owner'`**. The
+"exactly one owner" rule is held by the service, not by the schema.
 
-- `varchar(16)` is wide enough for the longest value (`owner`, 5 characters) with room to spare.
-- The set of allowed values is **not** a database enum. It is constrained by the application, and
-  `role` is never accepted from input.
+### Foreign keys
 
-## Foreign keys
+| Column | References | On delete | Effect |
+|---|---|---|---|
+| `organization_id` | `auth_organizations.id` | **RESTRICT** | An organization row cannot be deleted while a membership references it |
+| `user_id` | `auth_users.id` | **RESTRICT** | A user row cannot be deleted while they belong to any organization |
 
-Both references on `auth_organization_memberships` are **real, database-enforced foreign keys**,
-because the referenced tables also belong to `auth`:
+Both are `RESTRICT`, not `CASCADE`. Deleting an organization does **not** delete its memberships, and
+deleting a user does **not** remove their memberships.
 
-| From | To | On delete |
-|---|---|---|
-| `auth_organization_memberships.organization_id` | `auth_organizations.id` | `RESTRICT` |
-| `auth_organization_memberships.user_id` | `auth_users.id` | `RESTRICT` |
+Because every organization always has at least its `owner` membership, and removing memberships is
+not built, **no organization row is deletable today**.
 
-This is the opposite of the owner references used by user-or-organization-owned modules such as
-`bank`, which cross module boundaries and are therefore **logical** only - not database
-constraints.
+## The `role` column
 
-### What `ON DELETE RESTRICT` means here
+| Property | Value |
+|---|---|
+| Values | `owner`, `admin`, `user` |
+| Default | None. The service always writes an explicit value |
+| Ranked | `user` < `admin` < `owner` |
+| Read by | `hasMinRole()` for every role check |
 
-- An organization that still has memberships **cannot be deleted**. Since every organization
-  always has at least its `owner` membership, no organization can be deleted at all while
-  memberships exist.
-- A user who still belongs to any organization **cannot be deleted**.
-- Closing (deleting) an organization is documented target behaviour, not built behaviour: see
-  [#83](https://github.com/darthjee/ward/issues/83). Whatever that work does, it must remove or
-  otherwise resolve the memberships before the organization row can go.
+Whether the column is a database `ENUM` or a `VARCHAR` with a check is not stated in the project
+documentation. Either way, the constraint that matters is at the service level: the role is never
+taken from input.
 
-## Referential shape
+## What these tables do not have
+
+| Absent | Consequence |
+|---|---|
+| `owner_id` on `auth_organizations` | Ownership cannot contradict the membership role |
+| `created_by` anywhere | No authorship trail (#95) |
+| `slug` on `auth_organizations` | Routes address by `id` only |
+| `status` / `archived_at` | No soft delete, no lifecycle |
+| `member_count` | No denormalized count to keep in sync |
+| `deleted_at` | No soft delete |
+| Unique on `name` | Duplicate names are legal |
+| FK from any `bank` table | `bank` references `auth_organizations.id` **logically**, without a foreign key |
+
+The last row is the one that surprises: a `bank` record can hold an `organization_id` that no longer
+exists, and the database will not object. See [Owner context](./owner-context.md).
+
+## `bank` tables - the logical reference
+
+For a user-or-organization-owned module, the owner-root table carries two nullable columns:
+
+| Column | Type | Null | Key |
+|---|---|---|---|
+| `user_id` | integer | **yes** | Logical reference to `auth_users.id` - **no FK** |
+| `organization_id` | integer | **yes** | Logical reference to `auth_organizations.id` - **no FK** |
+
+A **check constraint requires exactly one of the two to be set**. Both are indexed.
+
+| Property | Detail |
+|---|---|
+| Foreign keys | **None.** The modules are deliberately separate |
+| Check constraint | Exactly one of `user_id`, `organization_id` is non-null |
+| Child tables | Store **no** owner copy - they inherit through their root |
+
+Consequence for an `organization_id` pointing at a deleted or never-existing organization: nothing in
+the database rejects it. The application must prevent it, which is why closing an organization (#83)
+is not a simple delete.
+
+## Query patterns these indexes serve
+
+| Query | Uses |
+|---|---|
+| `GET /orgs.json` - organizations of the current user | `user_id` index, joined to `auth_organizations` |
+| Membership check for `:orgId` | unique `(organization_id, user_id)` |
+| Role lookup for the guard | unique `(organization_id, user_id)` |
+| Ordered organization list | `id` on `auth_organizations` - the documented order |
+| Search organizations by name | **No index.** No such query exists in the API |
+
+## Verification queries
+
+Useful when checking a replica:
 
 ```
-auth_users                    auth_organizations
-   id (PK)                        id (PK)
-      ^                              ^
-      | ON DELETE RESTRICT            | ON DELETE RESTRICT
-      |                              |
-auth_organization_memberships
-   id                (PK)
-   organization_id   (FK -> auth_organizations)
-   user_id           (FK -> auth_users)
-   role              owner | admin | user
-   created_at, updated_at
-
-   UNIQUE (organization_id, user_id)
-   INDEX  (user_id)
+SHOW CREATE TABLE auth_organizations;
+SHOW CREATE TABLE auth_organization_memberships;
+SHOW INDEX FROM auth_organization_memberships;
 ```
 
-- A user has many memberships; **zero memberships is the normal state**.
-- An organization has many memberships; today it has **exactly one**, because there is no way to
-  join.
-- There is no cascade anywhere in this pair of tables.
+What to confirm:
 
-## Reconstructed DDL
+1. **Both foreign keys present**, each with `ON DELETE RESTRICT`.
+2. **The composite unique index** on `(organization_id, user_id)`.
+3. **The `user_id` index** exists separately from the composite.
+4. **No unique index on `auth_organizations.name`**.
 
-**This block is a reconstruction from the documented schema, not a transcription of the migration
-file.** The docs state the columns, types, nullability, foreign keys and indexes above; they do
-not quote the DDL. Treat the block as a readable summary of the documented schema, and read the
-migration itself for the authoritative version.
+If the composite unique index is missing, the application will allow duplicate memberships and the
+`findMembership` lookups become ambiguous.
 
-```sql
-CREATE TABLE auth_organizations (
-  id          INT           NOT NULL AUTO_INCREMENT,
-  name        VARCHAR(255)  NOT NULL,
-  created_at  TIMESTAMP     NOT NULL,
-  updated_at  TIMESTAMP     NOT NULL,
-  PRIMARY KEY (id)
-);
+## What is not documented in the repository
 
-CREATE TABLE auth_organization_memberships (
-  id               INT         NOT NULL AUTO_INCREMENT,
-  organization_id  INT         NOT NULL,
-  user_id          INT         NOT NULL,
-  role             VARCHAR(16) NOT NULL,
-  created_at       TIMESTAMP   NOT NULL,
-  updated_at       TIMESTAMP   NOT NULL,
-  PRIMARY KEY (id),
-  UNIQUE KEY uq_membership_org_user (organization_id, user_id),
-  KEY idx_membership_user (user_id),
-  CONSTRAINT fk_membership_organization
-    FOREIGN KEY (organization_id) REFERENCES auth_organizations (id)
-    ON DELETE RESTRICT,
-  CONSTRAINT fk_membership_user
-    FOREIGN KEY (user_id) REFERENCES auth_users (id)
-    ON DELETE RESTRICT
-);
-```
+The project documentation states the tables, the columns, the foreign keys, both indexes and the
+`name` rules. It does **not** contain:
 
-The index and constraint names above are placeholders: the docs describe the indexes by their
-columns, not by name.
+- the **exact DDL** of `20261107120015-auth-create-organizations.ts` - the migration file is named,
+  its contents are not quoted;
+- the concrete column types beyond `id`, `name` and the timestamps - `role` is documented as a set of
+  three values, not as a specific SQL type;
+- whether `created_at` / `updated_at` are `DATETIME` or `TIMESTAMP`, and whether either has
+  `ON UPDATE CURRENT_TIMESTAMP`;
+- index names as MySQL generates them;
+- whether the composite unique index is declared in the migration or through an entity decorator;
+- the storage engine, charset and collation;
+- whether the check constraint on owner-root tables is a table-level CHECK or enforced elsewhere.
 
-## Table naming and the module prefix
-
-- Both tables use the `auth_` prefix, following the module's convention.
-- The entities keep the unprefixed names (`Organization`, `OrganizationMembership`); the prefix
-  is a table-level convention only.
-- Because both tables live in `auth`, the foreign keys between them are real. This is the
-  dividing line between real FKs (same module) and logical references (cross module).
-
-## Differences from the original spec
-
-| Item | Spec said | Implementation uses |
-|---|---|---|
-| Organization table | `organizations` | `auth_organizations` |
-| Membership table | `organization_memberships` | `auth_organization_memberships` |
-| Foreign key delete behaviour | not specified | `ON DELETE RESTRICT` on both FKs |
-
-## Related physical objects
-
-| Object | Where | Purpose |
-|---|---|---|
-| Migration `20261107120015-auth-create-organizations.ts` | `backend/src/database/migrations/` | Creates both tables, the FKs and the indexes. See [Migrations](./migrations.md) |
-| `auth_users` | `auth` module | Referenced by `user_id`; not created or altered by this migration |
-
-## Not documented in the repository
-
-The `docs/agents/` pages describe the columns, types, foreign keys, indexes and rules above, but
-they do **not** contain the migration's DDL, the engine/charset/collation options, the exact
-index and constraint names, or the timestamp precision. Those live in the migration file and in
-the TypeORM configuration. Nothing on this page is invented beyond what the docs state; the DDL
-block is explicitly labelled as a reconstruction.
+Read the migration file and `SHOW CREATE TABLE` output for the authoritative schema. The column
+types above are the conservative reading of what the docs require, not a transcription of the DDL.
