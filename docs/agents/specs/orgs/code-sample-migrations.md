@@ -12,7 +12,7 @@ Base: `backend/src/database/migrations/`.
 | File | Role |
 |---|---|
 | [20261107120015-auth-create-organizations.ts](./code_sample/backend/src/database/migrations/20261107120015-auth-create-organizations.ts) | Creates `auth_organizations` and `auth_organization_memberships`, both foreign keys, the unique index `(organization_id, user_id)` and the `user_id` index |
-| [helpers.ts](./code_sample/backend/src/database/migrations/helpers.ts) | Shared migration helpers - **imported by the organizations migration** |
+| [helpers.ts](../../../../backend/src/database/migrations/helpers.ts) | Shared migration helpers - **imported by the organizations migration**. **Already in citadel, no port** (#26): the sample copy was identical and has been deleted |
 
 `helpers.ts` is shared by the whole migration set, not only this one. Copy it as-is; if the target
 repository already has its own equivalent, adapt the import in the organizations migration instead

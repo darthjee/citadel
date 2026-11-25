@@ -6,16 +6,22 @@ Next: [Migrations](./code-sample-migrations.md).
 **67 files plus 2 directories.** Every path below was read from the repository tree on branch
 `main`.
 
+**Status after #26:** 22 of these rows are no longer under `code_sample/`, so **45 files plus 2
+directories remain**. Rows marked "ported in #26" were moved to the real path shown; rows marked
+"already in citadel, no port" were identical to citadel's file (or differed only by the `WARD_*` vs
+`CITADEL_PLACEHOLDER_*` env prefix, or by `bank`-only error codes) and were deleted. Their links now
+point at citadel's own file.
+
 ## What this part covers
 
-| Group | Files |
-|---|---|
-| Entities | 3 |
-| Service, controller, response, DTO, module | 6 |
-| Core - access control | 27 |
-| Tests - organizations | 12 + 1 directory |
-| Tests - core | 17 + 1 directory |
-| Bank reference for role enforcement | 2 |
+| Group | Files | Still in `code_sample/` after #26 |
+|---|---|---|
+| Entities | 3 | 3 |
+| Service, controller, response, DTO, module | 6 | 6 |
+| Core - access control | 27 | 13 |
+| Tests - organizations | 12 + 1 directory | 12 + 1 directory |
+| Tests - core | 17 + 1 directory | 9 + 1 directory |
+| Bank reference for role enforcement | 2 | 2 |
 
 Copy in the order below. The entities come first because the service imports them; the core layer
 comes before the tests because the tests import it.
@@ -54,7 +60,7 @@ Base: `backend/src/core/`.
 | File | Role |
 |---|---|
 | [org-role.ts](./code_sample/backend/src/core/org-role.ts) | The three roles, `hasMinRole()`, `orgRoleForbidden()` |
-| [error-codes.ts](./code_sample/backend/src/core/error-codes.ts) | The `FORBIDDEN` / `NOT_FOUND` / `UNAUTHORIZED` constants used by the error bodies |
+| [error-codes.ts](../../../../backend/src/core/error-codes.ts) | The `FORBIDDEN` / `NOT_FOUND` / `UNAUTHORIZED` constants used by the error bodies - **already in citadel, no port** (only `bank` codes differed; org-specific codes, if any, come with #27) |
 
 ## 4. Core - owner context
 
@@ -67,7 +73,7 @@ Base: `backend/src/core/`.
 | [min-org-role.decorator.ts](./code_sample/backend/src/core/min-org-role.decorator.ts) | `@MinOrgRole()` - declares a route's minimum role |
 | [organization-membership-lookup.ts](./code_sample/backend/src/core/organization-membership-lookup.ts) | The `ORGANIZATION_MEMBERSHIP_LOOKUP` port the guard depends on |
 | [parse-org-id.ts](./code_sample/backend/src/core/parse-org-id.ts) | `parseOrgId()` - parses `:orgId` from a **raw string**, so `1e3` is never coerced |
-| [parse-id.ts](./code_sample/backend/src/core/parse-id.ts) | The generic strict id parser `parseOrgId()` builds on |
+| [parse-id.ts](../../../../backend/src/core/parse-id.ts) | The generic strict id parser `parseOrgId()` builds on - **ported in #26** to `backend/src/core/parse-id.ts` |
 
 `owner-context.ts` is also where the `OwnerContext` and `OwnerScope` types live - the documentation
 gave their shape without naming the declaring file.
@@ -76,17 +82,20 @@ gave their shape without naming the declaring file.
 
 Not part of the organizations feature, but the organization routes do not work without it.
 
+Every file in this section is **already in citadel, no port** (#26): the sample copies were
+identical, or differed only by the `WARD_*` vs `CITADEL_PLACEHOLDER_*` env prefix.
+
 | File | Role |
 |---|---|
-| [jwt.guard.ts](./code_sample/backend/src/core/jwt.guard.ts) | `JwtGuard` - reads the `access_token` cookie, verifies signature and expiry with key rotation, validates the `sid` / `sub` claims, and loads `request.user` from the session |
-| [session-lookup.ts](./code_sample/backend/src/core/session-lookup.ts) | The `SESSION_LOOKUP` port and its `SessionLookup` interface |
-| [access-token-payload.ts](./code_sample/backend/src/core/access-token-payload.ts) | The `AccessTokenPayload` type - `{ sub, sid, username, isAdmin }` |
-| [public.decorator.ts](./code_sample/backend/src/core/public.decorator.ts) | `@Public()` - the metadata key `JwtGuard` reads to skip verification |
-| [boolean-metadata.ts](./code_sample/backend/src/core/boolean-metadata.ts) | `readBooleanMetadata()` - shared by `JwtGuard` and `OwnerContextGuard` |
-| [current-user.decorator.ts](./code_sample/backend/src/core/current-user.decorator.ts) | `@CurrentUser()` - injects `request.user` |
-| [secret-keys.ts](./code_sample/backend/src/core/secret-keys.ts) | `buildSecretKeys()` - the current and previous keys used by the rotation |
-| [admin.guard.ts](./code_sample/backend/src/core/admin.guard.ts) | `AdminGuard` - the **global admin** guard, unrelated to organization roles |
-| [admin-only.decorator.ts](./code_sample/backend/src/core/admin-only.decorator.ts) | `@AdminOnly()` - the counterpart of `AdminGuard` |
+| [jwt.guard.ts](../../../../backend/src/core/jwt.guard.ts) | `JwtGuard` - reads the `access_token` cookie, verifies signature and expiry with key rotation, validates the `sid` / `sub` claims, and loads `request.user` from the session |
+| [session-lookup.ts](../../../../backend/src/core/session-lookup.ts) | The `SESSION_LOOKUP` port and its `SessionLookup` interface |
+| [access-token-payload.ts](../../../../backend/src/core/access-token-payload.ts) | The `AccessTokenPayload` type - `{ sub, sid, username, isAdmin }` |
+| [public.decorator.ts](../../../../backend/src/core/public.decorator.ts) | `@Public()` - the metadata key `JwtGuard` reads to skip verification |
+| [boolean-metadata.ts](../../../../backend/src/core/boolean-metadata.ts) | `readBooleanMetadata()` - shared by `JwtGuard` and `OwnerContextGuard` |
+| [current-user.decorator.ts](../../../../backend/src/core/current-user.decorator.ts) | `@CurrentUser()` - injects `request.user` |
+| [secret-keys.ts](../../../../backend/src/core/secret-keys.ts) | `buildSecretKeys()` - the current and previous keys used by the rotation |
+| [admin.guard.ts](../../../../backend/src/core/admin.guard.ts) | `AdminGuard` - the **global admin** guard, unrelated to organization roles |
+| [admin-only.decorator.ts](../../../../backend/src/core/admin-only.decorator.ts) | `@AdminOnly()` - the counterpart of `AdminGuard` |
 
 `admin.guard.ts` and `admin-only.decorator.ts` are included for contrast only: the global admin
 grants **no** organization access. If the replica drops the platform admin concept entirely, these
@@ -96,7 +105,7 @@ two can be omitted along with their references.
 
 | File | Role |
 |---|---|
-| [strict-validation.pipe.ts](./code_sample/backend/src/core/strict-validation.pipe.ts) | `@StrictBody()` - rejects unknown body fields, which is what closes the body as an owner source |
+| [strict-validation.pipe.ts](../../../../backend/src/core/strict-validation.pipe.ts) | `@StrictBody()` - rejects unknown body fields, which is what closes the body as an owner source - **ported in #26** to `backend/src/core/strict-validation.pipe.ts` |
 
 This file is the reason a `role` or `organizationId` in a request body answers `400`. Without it, a
 plain `@Body()` would accept those fields silently.
@@ -106,11 +115,11 @@ plain `@Body()` would accept those fields silently.
 | File | Role |
 |---|---|
 | [cache-class.ts](./code_sample/backend/src/core/cache-class.ts) | The `CacheClass` enum - `Never`, `UserScoped`, `Public` |
-| [cache-policy.decorator.ts](./code_sample/backend/src/core/cache-policy.decorator.ts) | `@CachePolicy(CacheClass)` - declared on the organization controller |
+| [cache-policy.decorator.ts](../../../../backend/src/core/cache-policy.decorator.ts) | `@CachePolicy(CacheClass)` - declared on the organization controller - **already in citadel, no port** |
 | [cache-policy.interceptor.ts](./code_sample/backend/src/core/cache-policy.interceptor.ts) | Emits `X-Skip-Cache` and `Cache-Control` |
 | [cache-invalidation.decorator.ts](./code_sample/backend/src/core/cache-invalidation.decorator.ts) | `@CacheInvalidation()` - declared on the write routes |
 | [cache-invalidation.interceptor.ts](./code_sample/backend/src/core/cache-invalidation.interceptor.ts) | The invalidation interceptor |
-| [cache-token.service.ts](./code_sample/backend/src/core/cache-token.service.ts) | The per-caller token behind `user-scoped` |
+| [cache-token.service.ts](../../../../backend/src/core/cache-token.service.ts) | The per-caller token behind `user-scoped` - **already in citadel, no port** (env prefix only) |
 
 ## 8. Tests - organizations
 
@@ -145,16 +154,16 @@ Base: `backend/src/core/tests/`.
 | [owner-scoped.module.e2e-spec.ts](./code_sample/backend/src/core/tests/owner-scoped.module.e2e-spec.ts) | Module wiring of the owner-scoped mechanism |
 | [**min-org-role.coverage.spec.ts**](./code_sample/backend/src/core/tests/min-org-role.coverage.spec.ts) | **The coverage spec** - fails the build on a plain `@Body()` or an owner-scoped route declared `public` |
 | [parse-org-id.spec.ts](./code_sample/backend/src/core/tests/parse-org-id.spec.ts) | `parseOrgId()`, including the `1e3` case |
-| [parse-id.spec.ts](./code_sample/backend/src/core/tests/parse-id.spec.ts) | The generic id parser |
+| [parse-id.spec.ts](../../../../backend/src/core/tests/parse-id.spec.ts) | The generic id parser - **ported in #26** to `backend/src/core/tests/parse-id.spec.ts` |
 | [current-owner.decorator.spec.ts](./code_sample/backend/src/core/tests/current-owner.decorator.spec.ts) | `@CurrentOwner()` |
-| [current-user.decorator.spec.ts](./code_sample/backend/src/core/tests/current-user.decorator.spec.ts) | `@CurrentUser()` |
-| [strict-validation.pipe.spec.ts](./code_sample/backend/src/core/tests/strict-validation.pipe.spec.ts) | `@StrictBody()` rejecting unknown fields |
-| [jwt.guard.spec.ts](./code_sample/backend/src/core/tests/jwt.guard.spec.ts) | The `401` gate, key rotation, session lookup |
-| [admin.guard.spec.ts](./code_sample/backend/src/core/tests/admin.guard.spec.ts) | `AdminGuard` - the global admin path |
-| [http-exception.filter.spec.ts](./code_sample/backend/src/core/tests/http-exception.filter.spec.ts) | The uniform error body shape |
+| [current-user.decorator.spec.ts](../../../../backend/src/core/tests/current-user.decorator.spec.ts) | `@CurrentUser()` - **already in citadel, no port** |
+| [strict-validation.pipe.spec.ts](../../../../backend/src/core/tests/strict-validation.pipe.spec.ts) | `@StrictBody()` rejecting unknown fields - **ported in #26** to `backend/src/core/tests/strict-validation.pipe.spec.ts` (extended with edge cases) |
+| [jwt.guard.spec.ts](../../../../backend/src/core/tests/jwt.guard.spec.ts) | The `401` gate, key rotation, session lookup - **already in citadel, no port** (env prefix only) |
+| [admin.guard.spec.ts](../../../../backend/src/core/tests/admin.guard.spec.ts) | `AdminGuard` - the global admin path - **already in citadel, no port** |
+| [http-exception.filter.spec.ts](../../../../backend/src/core/tests/http-exception.filter.spec.ts) | The uniform error body shape - **already in citadel, no port** |
 | [cache-invalidation.decorator.spec.ts](./code_sample/backend/src/core/tests/cache-invalidation.decorator.spec.ts) | `@CacheInvalidation()` |
-| [cache-token.service.spec.ts](./code_sample/backend/src/core/tests/cache-token.service.spec.ts) | The per-caller cache token |
-| [app.module.spec.ts](./code_sample/backend/src/core/tests/app.module.spec.ts) | Global guard registration order - `JwtGuard` before `OwnerContextGuard` |
+| [cache-token.service.spec.ts](../../../../backend/src/core/tests/cache-token.service.spec.ts) | The per-caller cache token - **already in citadel, no port** (env prefix only) |
+| [app.module.spec.ts](../../../../backend/src/core/tests/app.module.spec.ts) | Global guard registration order - `JwtGuard` before `OwnerContextGuard` - **already in citadel, no port** (env prefix only) |
 | [support/](./code_sample/backend/src/core/tests/support/) | Shared test support - **copy the whole directory** |
 
 `min-org-role.coverage.spec.ts` is the file the project documentation referred to without ever
