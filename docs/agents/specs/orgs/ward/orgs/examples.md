@@ -1,12 +1,10 @@
 # Organizations - Examples
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Endpoints](./endpoints.md), [Response](./response.md), [Security](./security.md),
-[Roles](./roles.md).
-
-## Summary
+Hub: [Organizations](../orgs.md).
 
 Concrete requests and responses for the four organization routes.
+
+## Summary
 
 | Route | Success | Main failures |
 |---|---|---|
@@ -19,7 +17,7 @@ Concrete requests and responses for the four organization routes.
 
 Two kinds of content appear below, and they are labelled differently.
 
-**Transcribed** - quoted from the repository documentation, verbatim: the `401`, `403` and `404` bodies,
+**Transcribed** - quoted from the project documentation, verbatim: the `401`, `403` and `404` bodies,
 the response field set, the status codes, and the check order.
 
 **Reconstructed** - built to illustrate the documented contract where the docs state the rule but do
@@ -175,6 +173,7 @@ Accepted, for contrast:
 | `{ "name": "  Acme  " }` | Trimmed to `Acme` and stored |
 | `{ "name": "Organização Ágape" }` | Non-ASCII letters are allowed |
 | `{ "name": "Acme" }` twice | `name` is **not unique** - both succeed |
+| 255 astral characters | 255 **code points**, 510 UTF-16 units |
 
 ## `GET /orgs/:orgId.json`
 
@@ -231,6 +230,8 @@ All four cases answer **the same body**. Transcribed:
 | `GET /api/orgs/999.json` | No such organization |
 | `GET /api/orgs/abc.json` | Not numeric - rejected by `parseOrgId()` |
 | `GET /api/orgs/1e3.json` | Not a plain integer - **not** coerced to `1000` |
+| `GET /api/orgs/0.json` | Not a positive integer |
+| `GET /api/orgs/007.json` | Not the canonical form |
 | `GET /api/orgs/7.json` where 7 exists but the caller is not a member | Non-member |
 | The same, as a **global admin** who is not a member | No `is_admin` bypass |
 
@@ -340,12 +341,26 @@ Every successful organization response, on all four routes:
 | `updated_at` | timestamp (ISO 8601) | Updated on every write |
 
 **Never present**, on any route: member list, member count, other users' ids, membership ids,
-`owner` identity, `is_admin`.
+`owner` identity, `is_admin`, `created_by`, `slug`.
+
+## Frontend paths, mapped to the routes
+
+| UI action | Route |
+|---|---|
+| `GET /orgs.json` on session start | `OrgListController` loads it once |
+| Create organization from the switcher | `POST /orgs.json`, from `#/orgs/new` |
+| Open an organization | `GET /orgs/:orgId.json`, at `#/orgs/:orgId` |
+| Rename from the overview | `PATCH /orgs/:orgId.json`, from `#/orgs/:orgId/edit` |
+
+The API path is built with `contextPath(context, '/orgs.json')`, which yields `/orgs.json` in
+Personal and `/orgs/1/orgs.json` in an organization - but the organization routes themselves are
+always called in the **Personal** form, because they are the organization surface, not a module
+mounted under one. See [Frontend](./frontend.md).
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages transcribe the `401`, `403` and `404` bodies, the field set, the statuses
-and the check order. They do **not** contain:
+The project documentation transcribes the `401`, `403` and `404` bodies, the field set, the statuses
+and the check order. It does **not** contain:
 
 - the **`400 VALIDATION_FAILED` body** - the code is named, the JSON shape is not. Every `400` in
   this page is reconstructed and labelled;
@@ -358,8 +373,10 @@ and the check order. They do **not** contain:
 - any **request example** as printed by the docs - the requests here are constructed from the
   documented DTO rules;
 - an OpenAPI/Swagger document, if one exists;
-- the `X-Cache-Allow` header value on the two `GET`s, and the exact `X-Skip-Cache` placement.
+- the `X-Cache-Allow` header value on the two `GET`s, and the exact `X-Skip-Cache` placement;
+- whether `PATCH` with an unchanged name still bumps `updated_at`.
 
-Read `backend/src/auth/organization.controller.ts`, `backend/src/auth/dto/organization-name.dto.ts`
-and the running API for the authoritative payloads. Nothing on this page is invented beyond the
-documented rules, and every reconstructed payload is marked as such.
+Read `backend/src/auth/organization.controller.ts`,
+`backend/src/auth/dto/organization-name.dto.ts` and the running API for the authoritative payloads.
+Nothing on this page is invented beyond the documented rules, and every reconstructed payload is
+marked as such.
