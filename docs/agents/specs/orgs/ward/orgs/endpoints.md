@@ -1,269 +1,247 @@
 # Organizations - Endpoints
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Security](./security.md), [Response](./response.md), [Caching](./caching.md),
-[Roles](./roles.md), [Service](./service.md), [Examples](./examples.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-Four routes, all JWT-protected, served by **`OrganizationController`**
-(`backend/src/auth/organization.controller.ts`), which delegates to `OrganizationService`.
+Four routes. No `/api` prefix in the backend - the proxy adds it.
 
-| Method | Path | Purpose | Success | Cache class |
-|---|---|---|---|---|
-| `GET` | `/orgs.json` | List the organizations the caller belongs to | `200` | `user-scoped` |
-| `POST` | `/orgs.json` | Create an organization; the caller becomes `owner` | `201` | `never` |
-| `GET` | `/orgs/:orgId.json` | Read one organization, with the caller's role | `200` | `user-scoped` |
-| `PATCH` | `/orgs/:orgId.json` | Rename an organization | `200` | `never` |
+| Method | Path | Success | Minimum role |
+|---|---|---|---|
+| `GET` | `/orgs.json` | `200` array | any member - here, the caller's own list |
+| `POST` | `/orgs.json` | `201` object | any approved user |
+| `GET` | `/orgs/:orgId.json` | `200` object | membership |
+| `PATCH` | `/orgs/:orgId.json` | `200` object | `admin` |
 
-There is no `DELETE /orgs/:orgId.json`. Closing an organization is documented target behaviour,
-not built - see [Roadmap](./roadmap.md).
+Every route returns the same five-field shape: `id`, `name`, `role`, `created_at`, `updated_at`.
 
-## Path prefix
+Concrete requests and responses: [Examples](./examples.md).
 
-- **The backend has no `/api` prefix.** The routes are `/orgs.json` and `/orgs/:orgId.json`, served
-  by a controller with **no prefix**.
-- The **proxy** (`darthjee/tent`) adds the external `/api` prefix, so a browser calls
-  `/api/orgs.json`.
-- The routes are **not** under `/auth/`. `OrganizationController` is a third controller in the
-  `auth` module, separate from `AuthController` and `AuthorizationRequestController`.
+## The `/api` prefix
 
-## Shared behavior
-
-These rules apply to all four routes, so they are stated once.
-
-### Authentication
-
-- **JWT-protected.** None of the four carries `@Public()`, so `JwtGuard`'s session-lookup gate
-  applies.
-- Only **approved** users are authenticated. A `pending` user's access tokens are blocked by the
-  gate; a `denied` user cannot log in at all.
-- Every gate rejection answers the same `401` body (see [Security](./security.md)).
-
-### Body
-
-- Bodies come **only through `@StrictBody()`**, typed by `OrganizationNameDto`.
-- The DTO accepts **`name` only**, and it is **required**.
-- Any other field - `role`, `organizationId`, `userId`, anything - answers
-  **`400 VALIDATION_FAILED`**.
-- The name is **trimmed**, then must be non-empty, at most **255 code points** and free of control
-  characters (Unicode `Cc`).
-- This is why "no client-supplied owner or role" holds at the transport layer: the role is never
-  an input, and the organization always comes from the URL.
-
-### `:orgId`
-
-- Taken as a **raw string** and parsed by `parseOrgId()` (`core/parse-org-id.ts`). A raw string is
-  deliberate: with a numeric coercion, `1e3` would become `1000`.
-- **Every** resolution failure - unknown id, malformed id, non-numeric id, or not a member - answers
-  the **same uniform `404`**. A global admin who is not a member gets it too.
-- The `404` **always** runs before any role check.
-
-### Roles
-
-| Route | Minimum role |
+| Layer | Path |
 |---|---|
-| `GET /orgs.json` | none - any member |
-| `POST /orgs.json` | none - any approved user; the caller becomes `owner` |
-| `GET /orgs/:orgId.json` | none - any member |
-| `PATCH /orgs/:orgId.json` | `admin` or `owner` |
+| Backend controller | `/orgs.json`, `/orgs/:orgId.json` |
+| Browser | `/api/orgs.json`, `/api/orgs/1.json` |
 
-- **Both `GET`s are open to every member** - reads need membership, not a minimum role.
-- A member whose role is too low answers the **uniform `403`**, only after the membership check.
-- The role check for `PATCH` lives in **`OrganizationService.rename`**, not in `@MinOrgRole`, because
-  these routes are **not** owner-scoped. See [Roles](./roles.md).
+The proxy adds `/api`. The controller carries **no path prefix** - it is not mounted under `/orgs`
+and not under `/api`. See [Caching](./caching.md) for the other proxy responsibility.
 
-### Response shape
+## Authentication
 
-- Every organization is serialized as `{ id, name, role, created_at, updated_at }`.
-- **`role` is the caller's role** in that organization, not the owner's role.
-- Member lists and other users' ids are **never** returned.
-- Serialization is done by `organization-response.ts` - see [Response](./response.md).
+All four routes require the **`access_token` cookie**.
 
-### Cache
+| Property | Value |
+|---|---|
+| Name | `access_token` |
+| Flags | `httpOnly`, `secure`, `sameSite: 'strict'` |
+| TTL | `WARD_ACCESS_TOKEN_TTL_MS`, default 15 minutes |
+| In a response body | **Never** |
 
-- The controller declares **`never`** at class level, so every route sends
-  **`X-Skip-Cache: true`**.
-- The two `GET`s are **narrowed to `user-scoped`**, cached per caller.
-- An organization id in the URL does **not** make a response public.
-- **Names are never logged.**
-- See [Caching](./caching.md).
+`JwtGuard` reads the cookie, verifies the signature and expiry, validates the `sid` / `sub` claims,
+and loads `request.user` from the session through `SESSION_LOOKUP`.
+
+| Situation | Answer |
+|---|---|
+| Missing cookie | `401 Missing access token` |
+| Bad signature, expired, malformed claims, unknown `sid`, revoked session, `pending` or `denied` user | `401 Invalid or expired access token` - the same body for all |
+
+There is **no Bearer header** and no query-parameter token. Cookie only.
 
 ## `GET /orgs.json`
 
-| Property | Value |
-|---|---|
-| Controller | `OrganizationController` |
-| Auth | JWT (approved user) |
-| Request body | - |
-| Query parameters | **none documented** |
-| Success response | Array of organizations the caller belongs to |
-| Ordering | **By id** |
-| HTTP status | `200` |
-| Cache class | `user-scoped` |
+The organizations the caller belongs to.
 
-- Returns **every** organization the caller is a member of - and, today, a user is only ever a
-  member of organizations they created.
-- **Zero organizations returns an empty array**, not a `404`. This is the normal state for a new
-  user.
-- **No filtering, no pagination, no search, no sort parameter** is documented for this route. The
-  response is the full membership list, ordered by id.
-- This is the route the UI's **context switcher** is built on.
+| Property | Detail |
+|---|---|
+| Order | By organization `id` |
+| Pagination | **None** |
+| Envelope | **None** - the array is returned bare |
+| Empty | `200` with `[]` |
+| `role` field | The **caller's** role in each organization |
+
+Each item: `{ id, name, role, created_at, updated_at }`.
+
+With no way to join, every item has `role: "owner"` today. Zero organizations is the **normal state**
+for a new user, and it answers `200 []` - not `404`, not `null`.
+
+No query parameters are accepted.
 
 ## `POST /orgs.json`
 
-| Property | Value |
+Creates an organization. The caller becomes its `owner`.
+
+### Body
+
+| Field | Required | Rules |
+|---|---|---|
+| `name` | **yes** | Trimmed; non-empty after trim; at most **255 code points**; no control characters (Unicode `Cc`) |
+
+**`name` is the only accepted field.** Any other field answers `400` - including `role`,
+`organizationId` and `userId`, rejected by `@StrictBody()`.
+
+### Response
+
+`201` with the organization, `role: "owner"`.
+
+### Behaviour
+
+| Property | Detail |
 |---|---|
-| Controller | `OrganizationController` |
-| Auth | JWT (approved user) |
-| Request body | `OrganizationNameDto` - `{ name: string }` |
-| Success response | The created organization, with `role: "owner"` |
-| HTTP status | `201` |
-| Errors | `400 VALIDATION_FAILED` |
-| Cache class | `never` |
+| Who may create | Any **approved** user. Not limited to admins or owners |
+| Transaction | The organization **and** the `owner` membership, in one transaction |
+| Role | Hard-coded to `owner`. Never read from input |
+| Cap per user | **None** |
+| Dedupe | **None** - the same name twice creates two organizations |
+| Rate limit | **None built** (#84) |
 
-- Creates the organization **and the caller's `owner` membership in one DB transaction**.
-- The **role is never taken from input**: it is hard-coded to `owner` for the creator.
-- This is the **only** route that writes a membership, which is what makes the "exactly one owner"
-  invariant hold without a database constraint. See [Service](./service.md).
-- There is **no join mechanism**: no invite, no member addition. This route always creates a
-  single-member organization.
-- Rate limiting is documented target behaviour, not built (#84).
-
-### Validation failure cases
-
-All of them answer `400 VALIDATION_FAILED`:
-
-| Case |
-|---|
-| `name` missing |
-| `name` empty or whitespace-only after trimming |
-| `name` longer than 255 code points |
-| `name` containing a control character (Unicode `Cc`) |
-| Any field other than `name` present - `role`, `organizationId`, etc. |
+A `pending` or `denied` user answers `401` at the gate, never `403`.
 
 ## `GET /orgs/:orgId.json`
 
-| Property | Value |
-|---|---|
-| Controller | `OrganizationController` |
-| Auth | JWT (approved user) |
-| Request body | - |
-| Query parameters | **none documented** |
-| Success response | The organization, with the caller's role |
-| HTTP status | `200` |
-| Errors | uniform `404` - unknown, malformed, or non-member |
-| Cache class | `user-scoped` |
+Reads one organization the caller belongs to.
 
-- Resolves `:orgId` with `parseOrgId()`, then checks the caller's membership.
-- A member of the organization reads it regardless of role - `user` is enough.
-- The **uniform `404`** covers every failure, including a global admin who is not a member.
+| Situation | Answer |
+|---|---|
+| Member | `200` with the five fields, `role` being the caller's |
+| Not a member | uniform `404` |
+| Organization does not exist | uniform `404` |
+| Malformed `:orgId` | uniform `404` |
+| Global admin, not a member | uniform `404` |
+
+The four `404` cases are **indistinguishable from the response** - same body, same status.
+
+The same URL therefore returns **different bodies to different callers**, because `role` describes
+the caller's membership. That is why the response is `user-scoped` in the cache and can never be
+`public`.
 
 ## `PATCH /orgs/:orgId.json`
 
-| Property | Value |
+Renames an organization.
+
+### Body
+
+Same DTO as create: **`name` only**, required, trimmed, 255 code points, no `Cc`.
+
+### Response
+
+`200` with the organization. `name` and `updated_at` change; `role` is unchanged and still the
+caller's.
+
+### Role
+
+Minimum `admin`. The check lives in `OrganizationService.rename` - these routes are **not**
+owner-scoped, so `@MinOrgRole()` does not apply. See [Service](./service.md).
+
+### Concurrency
+
+**Last write wins.** No optimistic locking, no version column, no `If-Match`. Two concurrent calls
+leave one of the two names, chosen by write order.
+
+## The check order - `400` > `404` > `403`
+
+On `PATCH`, three checks run in this exact sequence.
+
+| Step | Check | Failure | Reveals |
+|---|---|---|---|
+| 1 | Body valid? | `400 VALIDATION_FAILED` | Nothing - depends only on the body |
+| 2 | Membership exists? | uniform `404` | Nothing about existence |
+| 3 | Role meets `admin`? | uniform `403` | Only reachable by a member |
+
+Two consequences:
+
+- **An invalid body answers `400` even for an unknown organization.** The body is validated before
+  `:orgId` is resolved, so the `400` cannot be used to enumerate.
+- **A non-member never receives a `403`.** A `403` never reveals that the organization exists.
+
+On every other route the order is **`401` > `404` > `403`**.
+
+## Filters and parameters
+
+| Route | Query params | Filters |
+|---|---|---|
+| `GET /orgs.json` | **None accepted** | Implicitly the caller's memberships |
+| `POST /orgs.json` | None | - |
+| `GET /orgs/:orgId.json` | None | `:orgId` from the URL |
+| `PATCH /orgs/:orgId.json` | None | `:orgId` from the URL |
+
+There is **no pagination**, **no search**, **no sort parameter** and **no field selection**. The list
+is the caller's memberships, ordered by `id`, and that is the whole contract.
+
+## `:orgId` parsing
+
+Parsed by `parseOrgId()` from a **raw string**.
+
+| Input | Result |
 |---|---|
-| Controller | `OrganizationController` |
-| Auth | JWT, **`admin` or `owner`** |
-| Request body | `OrganizationNameDto` - `{ name: string }` |
-| Success response | The renamed organization, with the caller's role |
-| HTTP status | `200` |
-| Errors | `400 VALIDATION_FAILED`; uniform `404`; uniform `403` (role `user`) |
-| Cache class | `never` |
+| `7` | accepted |
+| `0` | rejected |
+| `007` | rejected |
+| `abc` | rejected |
+| `1e3` | rejected - **not** coerced to `1000` |
+| `1.5` | rejected |
+| above `2147483647` | rejected |
 
-### Check order - significant
+Every rejection answers the uniform `404`. The raw-string signature is the point: a parser taking a
+number would have already turned `1e3` into `1000` and addressed a different organization.
 
-The three checks run in this exact sequence:
+See [Owner context](./owner-context.md).
 
-1. **`400` - body.** Validated first, by the DTO / `@StrictBody()`.
-2. **`404` - membership.** `:orgId` parsed, membership looked up.
-3. **`403` - role.** Checked inside `OrganizationService.rename` via
-   `hasMinRole(membership.role, ADMIN)`.
+## Cache headers
 
-Two consequences, both deliberate:
+| Route | Cache class | `X-Skip-Cache` |
+|---|---|---|
+| `GET /orgs.json` | `user-scoped` | no - varies by caller |
+| `GET /orgs/:orgId.json` | `user-scoped` | no - the same URL differs per caller |
+| `POST /orgs.json` | `never` | yes |
+| `PATCH /orgs/:orgId.json` | `never` | yes |
 
-- An invalid body answers **`400` even for an unknown or foreign organization**, because the body
-  is validated before `:orgId` is resolved. That `400` depends **only on the body**, so it cannot
-  be used to enumerate organizations.
-- The `404` **always** precedes the `403`, so a non-member never learns that an organization
-  exists.
+The two `GET`s are **never** `public`, because their bodies depend on who is asking. See
+[Caching](./caching.md).
 
-### Rename semantics
+## Errors
 
-- **Only the name changes.** No other field exists to update.
-- **Concurrent renames: last write wins.** There is no optimistic locking, no version column and no
-  `If-Match`.
-- **Names are never logged**, on this path or any other.
-- Renaming is the **only** organization-level write besides creation. There is no delete.
+| Status | Code | When |
+|---|---|---|
+| `400` | `VALIDATION_FAILED` | Missing, empty, oversized or `Cc`-containing `name`; unknown body field |
+| `401` | `UNAUTHORIZED` | Missing cookie (different message), or any gate rejection |
+| `403` | `FORBIDDEN` | Member whose role is below `admin` - names neither resource nor role |
+| `404` | `NOT_FOUND` | Malformed, unknown, foreign `:orgId`, or non-member |
 
-## Error bodies
+Standard error body:
 
-The three error families, as documented. The full bodies are in [Security](./security.md).
-
-### `400 VALIDATION_FAILED`
-
-Returned when the body carries an unknown field, a missing/empty `name`, a name over 255 code
-points, or a control character.
-
-### `404` - uniform
-
-```json
-{
-  "error": { "code": "NOT_FOUND", "message": "Not Found" },
-  "statusCode": 404,
-  "timestamp": "<ISO 8601>"
-}
+```
+{ "error": { "code": "...", "message": "..." }, "statusCode": 400, "timestamp": "..." }
 ```
 
-Used for: unknown `:orgId`, malformed `:orgId`, non-numeric `:orgId`, and non-member - a global
-admin included.
+Concrete payloads: [Examples](./examples.md).
 
-### `403` - uniform
+## What the routes never contain
 
-```json
-{
-  "error": { "code": "FORBIDDEN", "message": "Forbidden" },
-  "statusCode": 403,
-  "timestamp": "<ISO 8601>"
-}
-```
-
-Used for every role failure. It names **neither the resource nor the required role**, and it is
-only ever reached by a **member**.
-
-## Filters and query parameters
-
-**None are documented, on any of the four routes.** Stated explicitly because the absence is
-meaningful:
-
-| Capability | Status on these routes |
+| Never | Why |
 |---|---|
-| Pagination (`page`, `limit`, `offset`, `cursor`) | Not documented; the list route returns the full membership list |
-| Sorting | Not documented; the order is fixed **by id** |
-| Search by name | Not documented; `name` is not unique and has no index |
-| Filter by role | Not documented; `role` is per-organization and returned per row |
-| Partial response / field selection | Not documented |
-| ETag / conditional requests | Not documented |
+| An owner identity | The caller's `role` is shown; who the `owner` is, is not |
+| A member list | No endpoint exists, and the serializer has no field for it |
+| A member count | Not stored |
+| `ownerId`, `created_by` | Neither exists on the model |
+| Another user's id | The response carries no user reference at all |
+| A slug | Routes address by `id` only |
 
-A reader looking for a filter on this endpoint set is looking for something that does not exist.
-The only selection dimension is **the caller's memberships**: `GET /orgs.json` returns exactly
-what the caller belongs to, and nothing else is queryable.
+See [Response](./response.md).
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages document the four routes, their payloads, statuses, errors, role rules,
-check order, response shape and cache class. They do **not** contain:
+The project documentation states the four routes, the payloads, the statuses, the check order, the
+filters and the cookie contract. It does **not** contain:
 
-- the exact controller source: the decorator list per method, the method signatures and the return
-  types;
-- the full `OrganizationNameDto` definition beyond "`name` only, required, trimmed, 255 code
-  points, no control characters";
-- the exact `400 VALIDATION_FAILED` body - the docs name the code but do not quote the shape;
-- whether the `201` on create is declared explicitly or is the framework default;
-- whether any response carries pagination or total-count headers;
-- the OpenAPI/Swagger surface, if one exists;
-- the `X-Cache-Allow` value sent on the two `GET`s.
+- the **exact route decorators** on `organization.controller.ts`, nor whether the controller is
+  mounted with `@Controller()` and no argument;
+- the `400` body shape - the code is named, the JSON is not quoted;
+- whether `error.details` appears on a validation failure;
+- the exact `Cache-Control` header value emitted for `user-scoped`;
+- whether `GET /orgs.json` has any implicit limit at the database level;
+- the precise wording of the two `401` messages beyond the two strings documented;
+- whether `PATCH` with an unchanged name still bumps `updated_at`.
 
-Read `backend/src/auth/organization.controller.ts` and
-`backend/src/auth/dto/organization-name.dto.ts` for the authoritative version. Nothing on this page
-is inferred beyond what the docs state.
+Read `backend/src/auth/organization.controller.ts` and the running API for the authoritative
+version. Nothing on this page is inferred beyond what the docs state.
