@@ -13,8 +13,6 @@ import { HttpExceptionFilter } from './core/http-exception.filter.js';
 import { JwtGuard } from './core/jwt.guard.js';
 import { LazyModuleLoaderService } from './core/lazy-module-loader.service.js';
 import { LoggingModule } from './core/logging.module.js';
-import { NoOrganizationMembershipLookup } from './core/no-organization-membership-lookup.js';
-import { ORGANIZATION_MEMBERSHIP_LOOKUP } from './core/organization-membership-lookup.js';
 import { OriginGuard } from './core/origin.guard.js';
 import { OwnerContextGuard } from './core/owner-context.guard.js';
 import { RequestContextMiddleware } from './core/request-context.middleware.js';
@@ -62,9 +60,8 @@ export function buildJwtSignOptions(configService: ConfigService): { expiresIn: 
  * `@OwnerScoped()` routes and enforces `@MinOrgRole`; it needs the
  * authenticated user and is a no-op elsewhere), then `AdminGuard` (which
  * also needs the authenticated user). `OwnerContextGuard` reads memberships
- * through the `ORGANIZATION_MEMBERSHIP_LOOKUP` port, bound here to the
- * fail-closed `NoOrganizationMembershipLookup` until the organizations
- * backend provides the real lookup.
+ * through the `ORGANIZATION_MEMBERSHIP_LOOKUP` port, which the imported
+ * `AuthModule` binds to `OrganizationService` and exports.
  *
  * Global interceptors: `CachePolicyInterceptor` applies each route's cache
  * class headers, and `CacheInvalidationInterceptor` emits
@@ -119,12 +116,6 @@ export function buildJwtSignOptions(configService: ConfigService): { expiresIn: 
     CacheTokenService,
     HealthService,
     LazyModuleLoaderService,
-    // Fail-closed default: nobody is a member of any organization. #28 removes
-    // this binding and binds `OrganizationService` (`useExisting`) in `AuthModule`.
-    {
-      provide: ORGANIZATION_MEMBERSHIP_LOOKUP,
-      useClass: NoOrganizationMembershipLookup,
-    },
     {
       provide: APP_GUARD,
       useClass: OriginGuard,

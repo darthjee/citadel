@@ -15,7 +15,13 @@ import { IS_OWNER_SCOPED_KEY } from '../../owner-scoped.decorator.js';
 
 const SRC_ROOT = resolve(__dirname, '..', '..', '..');
 
-export const KNOWN_CONTROLLERS = ['AdminController', 'AuthController', 'AuthorizationRequestController', 'HealthController'];
+export const KNOWN_CONTROLLERS = [
+  'AdminController',
+  'AuthController',
+  'AuthorizationRequestController',
+  'HealthController',
+  'OrganizationController',
+];
 
 export type ClassConstructor = new (...args: never[]) => unknown;
 
