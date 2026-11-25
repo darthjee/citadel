@@ -1,70 +1,137 @@
 import HashRouteResolver from '../../../../../assets/js/utils/routing/HashRouteResolver.js';
+import {
+  ROUTES_CONTEXT,
+  ROUTES_ORG_ONLY,
+} from '../../../../../assets/js/utils/routing/routes.js';
+
+const PERSONAL = { kind: 'personal' };
+
+const FIXTURES = {
+  orgOnlyRoutes: [['/', 'org-overview'], ['/edit', 'org-edit']],
+  contextRoutes: [['/x', 'x-page'], ['/x/new', 'x-new'], ['/x/:id', 'x-show']],
+};
+
+function resolve(hash, options) {
+  return new HashRouteResolver(() => hash, options).resolve();
+}
+
+function organization(orgId) {
+  return { kind: 'organization', orgId };
+}
 
 describe('HashRouteResolver', () => {
-  it('no longer resolves the removed register route, falling back to home', () => {
-    const resolver = new HashRouteResolver(() => '#/register');
+  describe('Personal-only routes', () => {
+    [
+      ['#/recover-password', 'reset-password'],
+      ['#/recover-password?token=abc123', 'reset-password'],
+      ['#/admin/users', 'admin-users'],
+      ['#/admin/users/42/edit', 'admin-user-edit'],
+      ['#/account/authorization-requests', 'authorization-requests'],
+      ['#/account/my-account', 'my-account'],
+      ['#/', 'home'],
+      ['', 'home'],
+    ].forEach(([hash, page]) => {
+      it(`resolves ${JSON.stringify(hash)} to ${page} in the Personal context`, () => {
+        expect(resolve(hash)).toEqual({ page, context: PERSONAL });
+      });
+    });
 
-    expect(resolver.getPage()).toBe('home');
+    ['#/register', '#/login', '#/recover', '#/unknown'].forEach((hash) => {
+      it(`falls back to home for ${hash}`, () => {
+        expect(resolve(hash)).toEqual({ page: 'home', context: PERSONAL });
+      });
+    });
+
+    it('does not match Personal-only routes under an organization prefix', () => {
+      expect(resolve('#/orgs/5/admin/users', FIXTURES)).toEqual({ page: 'home', context: PERSONAL });
+    });
   });
 
-  it('no longer resolves the removed login route, falling back to home', () => {
-    const resolver = new HashRouteResolver(() => '#/login');
+  describe('default tables', () => {
+    it('starts with no organization-only routes', () => {
+      expect(ROUTES_ORG_ONLY).toEqual([]);
+    });
 
-    expect(resolver.getPage()).toBe('home');
+    it('starts with no context-aware routes', () => {
+      expect(ROUTES_CONTEXT).toEqual([]);
+    });
+
+    it('falls back to home for a valid organization root', () => {
+      expect(resolve('#/orgs/5')).toEqual({ page: 'home', context: PERSONAL });
+    });
   });
 
-  it('no longer resolves the removed recover route, falling back to home', () => {
-    const resolver = new HashRouteResolver(() => '#/recover');
+  describe('organization-only routes', () => {
+    it('resolves the organization root', () => {
+      expect(resolve('#/orgs/5', FIXTURES)).toEqual({ page: 'org-overview', context: organization(5) });
+    });
 
-    expect(resolver.getPage()).toBe('home');
+    it('resolves the organization root with a trailing slash', () => {
+      expect(resolve('#/orgs/5/', FIXTURES)).toEqual({ page: 'org-overview', context: organization(5) });
+    });
+
+    it('resolves an organization-only page', () => {
+      expect(resolve('#/orgs/5/edit', FIXTURES)).toEqual({ page: 'org-edit', context: organization(5) });
+    });
+
+    it('strips the query string', () => {
+      expect(resolve('#/orgs/5/edit?x=1', FIXTURES)).toEqual({ page: 'org-edit', context: organization(5) });
+    });
+
+    it('accepts the max id boundary', () => {
+      expect(resolve('#/orgs/2147483647', FIXTURES))
+        .toEqual({ page: 'org-overview', context: organization(2147483647) });
+    });
+
+    it('does not resolve organization-only routes as Personal', () => {
+      expect(resolve('#/edit', FIXTURES)).toEqual({ page: 'home', context: PERSONAL });
+    });
+
+    it('falls back to home for an unknown rest under a valid id', () => {
+      expect(resolve('#/orgs/5/unknown', FIXTURES)).toEqual({ page: 'home', context: PERSONAL });
+    });
   });
 
-  it('resolves the reset-password route', () => {
-    const resolver = new HashRouteResolver(() => '#/recover-password');
+  describe('malformed organization ids', () => {
+    ['abc', '007', '-1', '1.5', '1e3', '99999999999', '0', '2147483648'].forEach((segment) => {
+      it(`resolves /orgs/${segment} to not-found`, () => {
+        expect(resolve(`#/orgs/${segment}`, FIXTURES)).toEqual({ page: 'not-found', context: PERSONAL });
+      });
+    });
 
-    expect(resolver.getPage()).toBe('reset-password');
+    it('resolves a malformed id with a rest to not-found', () => {
+      expect(resolve('#/orgs/abc/edit', FIXTURES)).toEqual({ page: 'not-found', context: PERSONAL });
+    });
+
+    it('resolves a malformed id to not-found with the default tables', () => {
+      expect(resolve('#/orgs/007')).toEqual({ page: 'not-found', context: PERSONAL });
+    });
   });
 
-  it('resolves the reset-password route with a token query string', () => {
-    const resolver = new HashRouteResolver(() => '#/recover-password?token=abc123');
+  describe('context-aware routes', () => {
+    it('matches a context route as Personal', () => {
+      expect(resolve('#/x', FIXTURES)).toEqual({ page: 'x-page', context: PERSONAL });
+    });
 
-    expect(resolver.getPage()).toBe('reset-password');
-  });
+    it('matches a context route under an organization', () => {
+      expect(resolve('#/orgs/5/x', FIXTURES)).toEqual({ page: 'x-page', context: organization(5) });
+    });
 
-  it('resolves the admin-users route', () => {
-    const resolver = new HashRouteResolver(() => '#/admin/users');
+    it('matches a static context route before its parameterized sibling', () => {
+      expect(resolve('#/orgs/5/x/new', FIXTURES)).toEqual({ page: 'x-new', context: organization(5) });
+    });
 
-    expect(resolver.getPage()).toBe('admin-users');
-  });
+    it('matches a parameterized context route under an organization', () => {
+      expect(resolve('#/orgs/5/x/9?y=1', FIXTURES)).toEqual({ page: 'x-show', context: organization(5) });
+    });
 
-  it('resolves the admin-user-edit route', () => {
-    const resolver = new HashRouteResolver(() => '#/admin/users/42/edit');
+    it('matches a parameterized context route as Personal', () => {
+      expect(resolve('#/x/9', FIXTURES)).toEqual({ page: 'x-show', context: PERSONAL });
+    });
 
-    expect(resolver.getPage()).toBe('admin-user-edit');
-  });
-
-  it('resolves the authorization-requests route', () => {
-    const resolver = new HashRouteResolver(() => '#/account/authorization-requests');
-
-    expect(resolver.getPage()).toBe('authorization-requests');
-  });
-
-  it('resolves the home route', () => {
-    const resolver = new HashRouteResolver(() => '#/');
-
-    expect(resolver.getPage()).toBe('home');
-  });
-
-  it('resolves an empty hash to home', () => {
-    const resolver = new HashRouteResolver(() => '');
-
-    expect(resolver.getPage()).toBe('home');
-  });
-
-  it('resolves an unknown route to home', () => {
-    const resolver = new HashRouteResolver(() => '#/unknown');
-
-    expect(resolver.getPage()).toBe('home');
+    it('does not use the fixture routes by default', () => {
+      expect(resolve('#/orgs/5/x')).toEqual({ page: 'home', context: PERSONAL });
+    });
   });
 
   it('exposes the current hash', () => {

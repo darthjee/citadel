@@ -29,7 +29,7 @@ export default class AppController {
    * @returns {string} Current page key.
    */
   getPage() {
-    return this.routeResolver.getPage();
+    return this.routeResolver.resolve().page;
   }
 
   /**

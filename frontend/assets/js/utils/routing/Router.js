@@ -1,4 +1,5 @@
 import Route from './Route.js';
+import { stripContextPrefix } from '../context/ownerContext.js';
 
 const TEMP_PAGE = '_internal_extract_params_';
 
@@ -21,14 +22,24 @@ export default class Router {
   }
 
   /**
+   * Match a path against the registered routes.
+   *
+   * @param {string} path - Path to match.
+   * @returns {string|null} Matching page identifier, or `null` when no route matches.
+   */
+  match(path) {
+    const match = this.#routes.find((route) => route.matches(path));
+    return match ? match.page : null;
+  }
+
+  /**
    * Resolve a path into a page identifier.
    *
    * @param {string} path - Path to resolve.
    * @returns {string} Matching page identifier, or `'home'` when no route matches.
    */
   resolve(path) {
-    const match = this.#routes.find((route) => route.matches(path));
-    return match ? match.page : 'home';
+    return this.match(path) ?? 'home';
   }
 
   /**
@@ -41,5 +52,18 @@ export default class Router {
   static extractParams(path, hash = '') {
     const normalizedHash = String(hash).split('?')[0].replace(/^#/, '');
     return new Route(path, TEMP_PAGE).params(normalizedHash);
+  }
+
+  /**
+   * Extract named params from a context-aware path pattern against a raw hash value.
+   *
+   * @description The `/orgs/<id>` prefix of a valid organization hash is stripped first, so a
+   * page extracts its params identically in the Personal and organization contexts.
+   * @param {string} path - Route pattern, without any context prefix (e.g. `/module/items/:id`).
+   * @param {string} [hash] - Hash value, with an optional leading `#` and query string.
+   * @returns {object} Route params map.
+   */
+  static extractContextParams(path, hash = '') {
+    return Router.extractParams(path, stripContextPrefix(hash));
   }
 }
