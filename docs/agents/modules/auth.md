@@ -79,6 +79,24 @@ these POST routes carry no query string, an uncapped response could otherwise be
 the first login/register/refresh and served verbatim (credentials/session token included) to a
 different caller. See [API Caching](../architecture/caching.md) for the general strategy.
 
+### Organization routes (`OrganizationController`, no prefix)
+
+JWT-protected (no `@Public()`), no `is_admin` bypass, thin over `OrganizationService` (the only
+membership writer, also bound to Core's `ORGANIZATION_MEMBERSHIP_LOOKUP` port with `useExisting`
+and exported with it). Full contract: [Organizations](auth/organizations.md).
+
+| Route | Body | Response | Cache class |
+|---|---|---|---|
+| `GET /orgs.json` | — | `[organization]`, ordered by id | `user-scoped` |
+| `POST /orgs.json` | `{ name }` | `201`, `organization` with `role: "owner"` | `never`, invalidates `/orgs.json` |
+| `GET /orgs/:orgId.json` | — | `organization` | `user-scoped` |
+| `PATCH /orgs/:orgId.json` | `{ name }` | `organization` | `never`, invalidates `/orgs.json`, `/orgs/<id>.json` |
+
+`organization` is exactly `{ id, name, role, created_at, updated_at }` (`role` is the caller's).
+Every miss on `:orgId` (unknown, malformed, foreign, non-member) answers the uniform 404; rename
+answers 400 body -> 404 membership -> 403 role (`admin` or above required). Registration creates
+no organization.
+
 ## CSRF protection
 
 Every mutating route above (`POST`/`PATCH`/`DELETE`), `@Public()` or not, is covered by the
@@ -121,6 +139,12 @@ table, the accepted residual risks and the rules future changes must keep.
   `20261018120013-auth-drop-sessions.ts`; the refresh-token chain replaces it.
 - `auth_authorization_requests` (`entities/authorization-request.entity.ts`) — see
   "Device-authorization flow" below for the full contract.
+- `auth_organizations` (`entities/organization.entity.ts`) and `auth_organization_memberships`
+  (`entities/organization-membership.entity.ts`) — organizations and the users' roles in them
+  (`user` / `admin` / `owner`), created by `20261107120015-auth-create-organizations.ts`. Unlike
+  the module's other user references, both membership columns are **real** FKs, `ON DELETE
+  RESTRICT`, with a unique `(organization_id, user_id)` index. See
+  [Organizations](auth/organizations.md#tables).
 
 A dev/manual-testing demo user (`demo`/`citadel-placeholder-demo`) is seeded by
 `database/migrations/20260824120004-auth-seed-demo-user.ts`, gated on `process.env.STAGE !==

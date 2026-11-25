@@ -26,8 +26,8 @@ level; a route-level class overrides the controller's.
 | Class | Enum | Use it for | Examples |
 |---|---|---|---|
 | `public` | `CacheClass.Public` | Data identical for every caller, readable by anyone | Reference data readable by anyone (none exist yet) |
-| `user-scoped` | `CacheClass.UserScoped` | Data that depends on who the caller is | A user's own saved resources, once any exist |
-| `never` | `CacheClass.Never` | Auth, tokens, admin, and operational endpoints | Every `AuthController`, `AdminController` and `AuthorizationRequestController` route; `GET /health.json`, `GET /ready.json` |
+| `user-scoped` | `CacheClass.UserScoped` | Data that depends on who the caller is | `GET /orgs.json`, `GET /orgs/:orgId.json`; every owner-scoped route |
+| `never` | `CacheClass.Never` | Auth, tokens, admin, and operational endpoints | Every `AuthController`, `AdminController` and `AuthorizationRequestController` route; `POST /orgs.json`, `PATCH /orgs/:orgId.json`; `GET /health.json`, `GET /ready.json` |
 
 How to pick one:
 
