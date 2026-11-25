@@ -6,12 +6,14 @@ import { User, UserStatus } from './entities/user.entity.js';
 import { TokenService } from './token.service.js';
 
 /**
- * The `status.json` answer. `status` is present **only** for a pending user;
- * every other answer carries just `loggedIn`/`isAdmin`.
+ * The `status.json` answer. `userId` (the caller's own `User.id`) is present
+ * **only** for an approved user; `status` is present **only** for a pending
+ * user; every other answer carries just `loggedIn`/`isAdmin`.
  */
 export interface AuthStatus {
   loggedIn: boolean;
   isAdmin: boolean;
+  userId?: number;
   status?: typeof UserStatus.PENDING;
 }
 
@@ -52,7 +54,7 @@ export class SessionStatusService {
    * user's token is also revoked with `admin_denied`). Pending user →
    * `{ loggedIn: false, isAdmin: false, status: 'pending' }`, the session is
    * kept so an approval is picked up on the next check. Approved user →
-   * `{ loggedIn: true, isAdmin }`.
+   * `{ loggedIn: true, isAdmin, userId }`, `userId` being the user's own id.
    * @param {string} refreshToken - The refresh token presented by the client.
    * @returns {Promise<AuthStatus>} The status answer.
    */
@@ -70,7 +72,7 @@ export class SessionStatusService {
 
   async #statusFor(user: User, tokenRow: RefreshToken): Promise<AuthStatus> {
     if (user.status === UserStatus.APPROVED) {
-      return { loggedIn: true, isAdmin: user.isAdmin };
+      return { loggedIn: true, isAdmin: user.isAdmin, userId: user.id };
     }
 
     if (user.status === UserStatus.PENDING) {
