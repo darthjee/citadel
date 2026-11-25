@@ -1,8 +1,6 @@
 # Organizations - Tests
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Security](./security.md), [Owner context](./owner-context.md), [Roles](./roles.md),
-[Frontend](./frontend.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
@@ -29,7 +27,8 @@ compiler cannot see. Neither replaces the other.
 
 - Source lives under `backend/src/`, with tests inside each module's own `tests/` folder.
 - Migrations live under `backend/src/database/migrations/`.
-- Tests run through Docker Compose, never on the host: `docker-compose run --rm ward_tests yarn test`.
+- Tests run through Docker Compose, never on the host:
+  `docker-compose run --rm ward_tests yarn test`.
 
 ### Frontend
 
@@ -40,9 +39,10 @@ compiler cannot see. Neither replaces the other.
 | Custom Node ESM loader | `specs/support/jsx-loader.mjs` - transforms `.jsx` via Babel, stubs image/CSS imports, shims `import.meta.env` |
 
 - Specs live under `frontend/specs/`, mirroring `frontend/assets/js/`.
-- Organization page specs exist, for example under
+- Organization page specs exist under
   `frontend/specs/assets/js/components/resources/organizations/pages/controllers/`
-  (`OrganizationEditControllerSpec.js`, `OrganizationLoaderSpec.js`).
+  (`OrganizationNewControllerSpec.js`, `OrganizationEditControllerSpec.js`,
+  `OrganizationLoaderSpec.js`) and under `pages/helpers/`.
 
 ### Lint as a test gate
 
@@ -56,6 +56,8 @@ which is part of why the owner-context mechanism is spread across small files in
 than concentrated in one class.
 
 ## The coverage spec
+
+**File**: `backend/src/core/tests/min-org-role.coverage.spec.ts`.
 
 The documented purpose: fail the build on the two ways a route can **opt out** of the owner-scoped
 contract.
@@ -107,8 +109,6 @@ review surface, not necessarily an automated suite.
 
 ### Mapping rules to files
 
-Useful when reviewing a change to this domain:
-
 | Rule | Where the violation would live |
 |---|---|
 | 1, 2 | Any repository query in a domain module; raw SQL in the ledger |
@@ -140,8 +140,7 @@ why a route can pass CI and still be wrong.
 
 ## Failure-mode table - what to assert
 
-Derived from the rules in [Security](./security.md). Useful as a test-writing checklist rather than
-as documentation of existing tests.
+Derived from the rules in [Security](./security.md). Useful as a test-writing checklist.
 
 | Assertion | Expected |
 |---|---|
@@ -188,13 +187,9 @@ A test that only uses ASCII cannot tell the two implementations apart.
 
 ## Frontend specs
 
-The frontend mirrors `assets/js/` under `specs/`. For organizations, the observed spec paths are
-under `frontend/specs/assets/js/components/resources/organizations/pages/controllers/`.
+The frontend mirrors `assets/js/` under `specs/`.
 
-Areas that the frontend mechanism implies must be covered, derived from
-[Frontend](./frontend.md):
-
-| Area | What a spec would pin |
+| Area | What a spec pins |
 |---|---|
 | `HashRouteResolver` | Personal-only matches first; `/orgs/<seg>` stripping; `^[1-9][0-9]*$` and the `2147483647` bound resolving to `not-found` **without** a request; fallback to `home` |
 | `contextPath` / `contextHash` / `landingFor` | Correct path per context |
@@ -204,6 +199,10 @@ Areas that the frontend mechanism implies must be covered, derived from
 | `can(role, action)` | **Fails closed**: `null` role and unknown action both answer `false` |
 | `forbiddenRefreshEffect` | One refresh per burst of `403`s |
 | `buildOwnerContextValue` | `role: 'owner'` in Personal; `null` while loading or unlisted |
+| `OrganizationNewController` | The create submit path |
+| `OrganizationEditController` | The rename submit path and the `403` message |
+| `OrganizationLoader` | The overview load path |
+| `OrganizationFormHelper` / `OrganizationOverviewHelper` | The rendered markup and the Rename link |
 
 The `can()` row is the one with a clear mirror on the backend: the frontend matrix is a copy of the
 backend's, and a divergence between them is invisible until a control is shown that the API refuses.
@@ -224,22 +223,22 @@ on someone writing the assertion or the reviewer catching it.
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages state that a coverage spec exists, name its two triggers, and list the ten
-`data-access` rules. They do **not** contain:
+The project documentation states that a coverage spec exists at
+`backend/src/core/tests/min-org-role.coverage.spec.ts`, names its two triggers, and lists the ten
+`data-access` rules. It does **not** contain:
 
-- the **file path or source of the coverage spec** - the section that names it is referenced but its
-  content is not quoted;
-- whether the spec is a Jest test, an ESLint rule, a custom AST script, or something else;
-- how it enumerates routes - reflection over controllers, a decorator metadata scan, or a manual
-  list;
-- the **full list of spec files** for the organization domain, on either side;
-- any test asserting the **check order** (`400` before `404` before `403`), the **uniformity** of
-  the `404` and `403` bodies across cases, or the **absence of `is_admin` bypass**;
+- the **source** of the coverage spec - whether it reflects over controllers, scans decorator
+  metadata, or walks a manual route list;
+- whether the cache class is asserted separately from the `public` route trigger;
+- the full list of organization spec files, on either side - the ones listed on this page are the
+  spec paths observed in the repository;
+- any test asserting the **check order** (`400` before `404` before `403`), the **uniformity** of the
+  `404` and `403` bodies across cases, or the **absence of `is_admin` bypass**;
 - any test asserting the exact five-field response shape;
 - coverage thresholds, if any are enforced;
-- the frontend specs for the routing resolver, `ContextStorage` or `can()` - the paths are observed
-  under `frontend/specs/`, their contents are not documented;
+- the frontend specs' contents for the routing resolver, `ContextStorage` or `can()` - the paths
+  exist, what each spec asserts is not documented;
 - whether the `data-access` checklist is enforced by tooling or by human review only.
 
-Read `backend/src/auth/tests/`, `backend/src/core/` and `frontend/specs/` for the authoritative
+Read `backend/src/core/tests/`, `backend/src/auth/tests/` and `frontend/specs/` for the authoritative
 version. Nothing on this page is inferred beyond what the docs state.
