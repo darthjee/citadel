@@ -244,3 +244,12 @@ decorators, the port, the filter builders and the check order. It does **not** c
 
 Read `backend/src/core/` for the authoritative version. Nothing on this page is inferred beyond what
 the docs state.
+
+Since #27 the source lives in `backend/src/core/`, which settles three of these questions:
+
+- the context is stored as a plain property, `request.ownerContext` (typed in
+  `backend/src/types/express.d.ts`);
+- there is no `MembershipView`: the port's `findRole(userId, orgId)` resolves `OrgRole | null`
+  (`backend/src/core/organization-membership-lookup.ts`);
+- `ownerSqlWhere(scope, alias)` returns a parameterised fragment `{ sql, params }`
+  (`backend/src/core/owner-context.ts`), and rejects an alias that is not a plain SQL identifier.

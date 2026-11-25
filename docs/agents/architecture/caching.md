@@ -83,6 +83,15 @@ POST/PATCH/PUT/DELETE that reaches the backend rule, and clears the matching col
 entity cache directories for that path. There is no cross-path invalidation map and no manual
 purge endpoint.
 
+The backend also emits `X-Cache-Invalidate` (`core/cache-invalidation.interceptor.ts`, a global
+`APP_INTERCEPTOR`) on a successful (2xx) non-GET/HEAD response of a route declaring
+`InvalidatesOwner()` (`/<path>` or `/orgs/<id>/<path>`) or `InvalidatesPaths(build)`; never on an
+error, and unsafe paths are dropped. `NoCacheInvalidation()` and undeclared routes emit nothing.
+**The proxy does not consume this header yet** (#33): it is forwarded untouched, and Tent's
+`CacheCleanupMiddleware` stays the only active invalidation. Owner-scoped controllers
+(`@OwnerScopedController()`) are `user-scoped`, so they also send `X-Skip-Cache` and are never
+shared-cached; a coverage spec forbids declaring an owner-scoped route `public`.
+
 ## Navi warm-up
 
 Only `public` GET endpoints may be added to Navi's warm-up resources (`navi/resources/*.yml`).

@@ -6,13 +6,17 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from './auth/auth.module.js';
 import { AdminGuard } from './core/admin.guard.js';
+import { CacheInvalidationInterceptor } from './core/cache-invalidation.interceptor.js';
 import { CachePolicyInterceptor } from './core/cache-policy.interceptor.js';
 import { CacheTokenService } from './core/cache-token.service.js';
 import { HttpExceptionFilter } from './core/http-exception.filter.js';
 import { JwtGuard } from './core/jwt.guard.js';
 import { LazyModuleLoaderService } from './core/lazy-module-loader.service.js';
 import { LoggingModule } from './core/logging.module.js';
+import { NoOrganizationMembershipLookup } from './core/no-organization-membership-lookup.js';
+import { ORGANIZATION_MEMBERSHIP_LOOKUP } from './core/organization-membership-lookup.js';
 import { OriginGuard } from './core/origin.guard.js';
+import { OwnerContextGuard } from './core/owner-context.guard.js';
 import { RequestContextMiddleware } from './core/request-context.middleware.js';
 import { buildSecretKeys } from './core/secret-keys.js';
 import { HealthController } from './health/health.controller.js';
@@ -54,7 +58,17 @@ export function buildJwtSignOptions(configService: ConfigService): { expiresIn: 
  * Global guards run in registration order: `OriginGuard` (CSRF protection
  * for state-changing requests) comes first, so a forged cross-site request
  * is rejected with `403` before `JwtGuard` could answer `401`; then
- * `JwtGuard`, then `AdminGuard` (which needs the authenticated user).
+ * `JwtGuard`, then `OwnerContextGuard` (resolves `request.ownerContext` on
+ * `@OwnerScoped()` routes and enforces `@MinOrgRole`; it needs the
+ * authenticated user and is a no-op elsewhere), then `AdminGuard` (which
+ * also needs the authenticated user). `OwnerContextGuard` reads memberships
+ * through the `ORGANIZATION_MEMBERSHIP_LOOKUP` port, bound here to the
+ * fail-closed `NoOrganizationMembershipLookup` until the organizations
+ * backend provides the real lookup.
+ *
+ * Global interceptors: `CachePolicyInterceptor` applies each route's cache
+ * class headers, and `CacheInvalidationInterceptor` emits
+ * `X-Cache-Invalidate` on successful writes that declare an invalidation.
  *
  * Implements `NestModule` to wire the global `RequestContextMiddleware`
  * (request-correlation context + per-request access log) ahead of the
@@ -105,6 +119,12 @@ export function buildJwtSignOptions(configService: ConfigService): { expiresIn: 
     CacheTokenService,
     HealthService,
     LazyModuleLoaderService,
+    // Fail-closed default: nobody is a member of any organization. #28 removes
+    // this binding and binds `OrganizationService` (`useExisting`) in `AuthModule`.
+    {
+      provide: ORGANIZATION_MEMBERSHIP_LOOKUP,
+      useClass: NoOrganizationMembershipLookup,
+    },
     {
       provide: APP_GUARD,
       useClass: OriginGuard,
@@ -113,6 +133,11 @@ export function buildJwtSignOptions(configService: ConfigService): { expiresIn: 
       provide: APP_GUARD,
       useClass: JwtGuard,
     },
+    // Must stay right after `JwtGuard`: it needs `request.user`.
+    {
+      provide: APP_GUARD,
+      useClass: OwnerContextGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: AdminGuard,
@@ -120,6 +145,10 @@ export function buildJwtSignOptions(configService: ConfigService): { expiresIn: 
     {
       provide: APP_INTERCEPTOR,
       useClass: CachePolicyInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: CacheInvalidationInterceptor,
     },
     {
       provide: APP_FILTER,

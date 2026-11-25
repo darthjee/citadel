@@ -157,7 +157,7 @@ The full bodies are in [Security](./security.md).
 
 | Term | Definition |
 |---|---|
-| **coverage spec** | `min-org-role.coverage.spec.ts`. Fails the build on a plain `@Body()` or an owner-scoped route declared `public` |
+| **coverage spec** | `min-org-role`, `owner-scoped` and `cache-invalidation.coverage.spec.ts` (`backend/src/core/tests/`). Fail the build on an owner-scoped write without `@MinOrgRole` or an invalidation, a plain `@Body()`, or an owner-scoped route declared `public` |
 | **`data-access` checklist** | The ten review rules a reviewer applies. Not automated |
 | **structural failure** | Visible in the decorators, without reasoning about behaviour - the coverage spec's domain |
 | **semantic failure** | Passes the structural spec and breaks the contract - e.g. a query without `ownerWhere()`. The checklist's domain |

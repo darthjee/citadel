@@ -13,7 +13,7 @@ export const ORGANIZATION_MEMBERSHIP_LOOKUP = Symbol('ORGANIZATION_MEMBERSHIP_LO
  * run one indexed lookup on the unique `(organization_id, user_id)` key, without
  * first checking that the organization exists (identical cost either way, so
  * organizations cannot be enumerated), never cache between requests and never
- * bypass the check for Ward's global admin.
+ * bypass the check for the global admin.
  */
 export interface OrganizationMembershipLookup {
   /**

@@ -12,16 +12,23 @@ directories remain**. Rows marked "ported in #26" were moved to the real path sh
 `CITADEL_PLACEHOLDER_*` env prefix, or by `bank`-only error codes) and were deleted. Their links now
 point at citadel's own file.
 
+**Status after #27:** the owner-context mechanism (roles, owner context, guard, decorators, membership
+port, cache invalidation) and its core specs and test support were ported to `backend/src/core/`
+(rows marked "ported in #27") and their copies deleted, so **25 files plus 1 directory remain**.
+The only core files left under `code_sample/` are `cache-class.ts` and `cache-policy.interceptor.ts`,
+which belong to #33 (the `X-Cache-Allow` model). Rows marked "new in #27" are citadel additions with
+no counterpart in the original.
+
 ## What this part covers
 
-| Group | Files | Still in `code_sample/` after #26 |
-|---|---|---|
-| Entities | 3 | 3 |
-| Service, controller, response, DTO, module | 6 | 6 |
-| Core - access control | 27 | 13 |
-| Tests - organizations | 12 + 1 directory | 12 + 1 directory |
-| Tests - core | 17 + 1 directory | 9 + 1 directory |
-| Bank reference for role enforcement | 2 | 2 |
+| Group | Files | Still in `code_sample/` after #26 | After #27 |
+|---|---|---|---|
+| Entities | 3 | 3 | 3 |
+| Service, controller, response, DTO, module | 6 | 6 | 6 |
+| Core - access control | 27 | 13 | 2 |
+| Tests - organizations | 12 + 1 directory | 12 + 1 directory | 12 + 1 directory |
+| Tests - core | 17 + 1 directory | 9 + 1 directory | 0 |
+| Bank reference for role enforcement | 2 | 2 | 2 |
 
 Copy in the order below. The entities come first because the service imports them; the core layer
 comes before the tests because the tests import it.
@@ -59,20 +66,20 @@ Base: `backend/src/core/`.
 
 | File | Role |
 |---|---|
-| [org-role.ts](./code_sample/backend/src/core/org-role.ts) | The three roles, `hasMinRole()`, `orgRoleForbidden()` |
-| [error-codes.ts](../../../../backend/src/core/error-codes.ts) | The `FORBIDDEN` / `NOT_FOUND` / `UNAUTHORIZED` constants used by the error bodies - **already in citadel, no port** (only `bank` codes differed; org-specific codes, if any, come with #27) |
+| [org-role.ts](../../../../backend/src/core/org-role.ts) | The three roles, `hasMinRole()`, `orgRoleForbidden()` - **ported in #27** to `backend/src/core/org-role.ts` |
+| [error-codes.ts](../../../../backend/src/core/error-codes.ts) | The `FORBIDDEN` / `NOT_FOUND` / `UNAUTHORIZED` constants used by the error bodies - **already in citadel, no port** (only `bank` codes differed) |
 
 ## 4. Core - owner context
 
 | File | Role |
 |---|---|
-| [owner-context.ts](./code_sample/backend/src/core/owner-context.ts) | `ownerWhere()`, `ownerSqlWhere()`, and the `OwnerContext` / `OwnerScope` types |
-| [owner-context.guard.ts](./code_sample/backend/src/core/owner-context.guard.ts) | `OwnerContextGuard` - global `APP_GUARD`, resolves the owner and enforces the minimum role |
-| [owner-scoped.decorator.ts](./code_sample/backend/src/core/owner-scoped.decorator.ts) | `@OwnerScoped()` and `@OwnerScopedController()` |
-| [current-owner.decorator.ts](./code_sample/backend/src/core/current-owner.decorator.ts) | `@CurrentOwner()` - injects the resolved context |
-| [min-org-role.decorator.ts](./code_sample/backend/src/core/min-org-role.decorator.ts) | `@MinOrgRole()` - declares a route's minimum role |
-| [organization-membership-lookup.ts](./code_sample/backend/src/core/organization-membership-lookup.ts) | The `ORGANIZATION_MEMBERSHIP_LOOKUP` port the guard depends on |
-| [parse-org-id.ts](./code_sample/backend/src/core/parse-org-id.ts) | `parseOrgId()` - parses `:orgId` from a **raw string**, so `1e3` is never coerced |
+| [owner-context.ts](../../../../backend/src/core/owner-context.ts) | `ownerWhere()`, `ownerSqlWhere()`, and the `OwnerContext` / `OwnerScope` types - **ported in #27** to `backend/src/core/owner-context.ts` |
+| [owner-context.guard.ts](../../../../backend/src/core/owner-context.guard.ts) | `OwnerContextGuard` - global `APP_GUARD`, resolves the owner and enforces the minimum role - **ported in #27** to `backend/src/core/owner-context.guard.ts` |
+| [owner-scoped.decorator.ts](../../../../backend/src/core/owner-scoped.decorator.ts) | `@OwnerScoped()` and `@OwnerScopedController()` - **ported in #27** to `backend/src/core/owner-scoped.decorator.ts` |
+| [current-owner.decorator.ts](../../../../backend/src/core/current-owner.decorator.ts) | `@CurrentOwner()` - injects the resolved context - **ported in #27** to `backend/src/core/current-owner.decorator.ts` |
+| [min-org-role.decorator.ts](../../../../backend/src/core/min-org-role.decorator.ts) | `@MinOrgRole()` - declares a route's minimum role - **ported in #27** to `backend/src/core/min-org-role.decorator.ts` |
+| [organization-membership-lookup.ts](../../../../backend/src/core/organization-membership-lookup.ts) | The `ORGANIZATION_MEMBERSHIP_LOOKUP` port the guard depends on - **ported in #27** to `backend/src/core/organization-membership-lookup.ts` |
+| [parse-org-id.ts](../../../../backend/src/core/parse-org-id.ts) | `parseOrgId()` - parses `:orgId` from a **raw string**, so `1e3` is never coerced - **ported in #27** to `backend/src/core/parse-org-id.ts` |
 | [parse-id.ts](../../../../backend/src/core/parse-id.ts) | The generic strict id parser `parseOrgId()` builds on - **ported in #26** to `backend/src/core/parse-id.ts` |
 
 `owner-context.ts` is also where the `OwnerContext` and `OwnerScope` types live - the documentation
@@ -117,8 +124,8 @@ plain `@Body()` would accept those fields silently.
 | [cache-class.ts](./code_sample/backend/src/core/cache-class.ts) | The `CacheClass` enum - `Never`, `UserScoped`, `Public` |
 | [cache-policy.decorator.ts](../../../../backend/src/core/cache-policy.decorator.ts) | `@CachePolicy(CacheClass)` - declared on the organization controller - **already in citadel, no port** |
 | [cache-policy.interceptor.ts](./code_sample/backend/src/core/cache-policy.interceptor.ts) | Emits `X-Skip-Cache` and `Cache-Control` |
-| [cache-invalidation.decorator.ts](./code_sample/backend/src/core/cache-invalidation.decorator.ts) | `@CacheInvalidation()` - declared on the write routes |
-| [cache-invalidation.interceptor.ts](./code_sample/backend/src/core/cache-invalidation.interceptor.ts) | The invalidation interceptor |
+| [cache-invalidation.decorator.ts](../../../../backend/src/core/cache-invalidation.decorator.ts) | `@CacheInvalidation()` - declared on the write routes - **ported in #27** to `backend/src/core/cache-invalidation.decorator.ts` |
+| [cache-invalidation.interceptor.ts](../../../../backend/src/core/cache-invalidation.interceptor.ts) | The invalidation interceptor - **ported in #27** to `backend/src/core/cache-invalidation.interceptor.ts` |
 | [cache-token.service.ts](../../../../backend/src/core/cache-token.service.ts) | The per-caller token behind `user-scoped` - **already in citadel, no port** (env prefix only) |
 
 ## 8. Tests - organizations
@@ -147,28 +154,33 @@ Base: `backend/src/core/tests/`.
 
 | File | Covers |
 |---|---|
-| [org-role.spec.ts](./code_sample/backend/src/core/tests/org-role.spec.ts) | `hasMinRole()` ranking and the 403 body |
-| [owner-context.spec.ts](./code_sample/backend/src/core/tests/owner-context.spec.ts) | `ownerWhere()` and `ownerSqlWhere()` |
-| [owner-context.guard.spec.ts](./code_sample/backend/src/core/tests/owner-context.guard.spec.ts) | The guard: resolution order, 404 before 403 |
-| [owner-scoped.decorator.spec.ts](./code_sample/backend/src/core/tests/owner-scoped.decorator.spec.ts) | `@OwnerScoped()` and `@OwnerScopedController()` |
-| [owner-scoped.module.e2e-spec.ts](./code_sample/backend/src/core/tests/owner-scoped.module.e2e-spec.ts) | Module wiring of the owner-scoped mechanism |
-| [**min-org-role.coverage.spec.ts**](./code_sample/backend/src/core/tests/min-org-role.coverage.spec.ts) | **The coverage spec** - fails the build on a plain `@Body()` or an owner-scoped route declared `public` |
-| [parse-org-id.spec.ts](./code_sample/backend/src/core/tests/parse-org-id.spec.ts) | `parseOrgId()`, including the `1e3` case |
+| [org-role.spec.ts](../../../../backend/src/core/tests/org-role.spec.ts) | `hasMinRole()` ranking and the 403 body - **ported in #27** to `backend/src/core/tests/org-role.spec.ts` |
+| [owner-context.spec.ts](../../../../backend/src/core/tests/owner-context.spec.ts) | `ownerWhere()` and `ownerSqlWhere()` - **ported in #27** to `backend/src/core/tests/owner-context.spec.ts` |
+| [owner-context.guard.spec.ts](../../../../backend/src/core/tests/owner-context.guard.spec.ts) | The guard: resolution order, 404 before 403 - **ported in #27** to `backend/src/core/tests/owner-context.guard.spec.ts` |
+| [owner-scoped.decorator.spec.ts](../../../../backend/src/core/tests/owner-scoped.decorator.spec.ts) | `@OwnerScoped()` and `@OwnerScopedController()` - **ported in #27** to `backend/src/core/tests/owner-scoped.decorator.spec.ts` |
+| [owner-scoped.module.e2e-spec.ts](../../../../backend/src/core/tests/owner-scoped.module.e2e-spec.ts) | Module wiring of the owner-scoped mechanism - **ported in #27** to `backend/src/core/tests/owner-scoped.module.e2e-spec.ts` |
+| [**min-org-role.coverage.spec.ts**](../../../../backend/src/core/tests/min-org-role.coverage.spec.ts) | **A coverage spec** - fails the build on an owner-scoped write without `@MinOrgRole`, or with an unknown role - **ported in #27** to `backend/src/core/tests/min-org-role.coverage.spec.ts` |
+| [**owner-scoped.coverage.spec.ts**](../../../../backend/src/core/tests/owner-scoped.coverage.spec.ts) | **A coverage spec** - fails the build on a plain `@Body()` or an owner-scoped route declared `public` - **new in #27** (not in the original) |
+| [**cache-invalidation.coverage.spec.ts**](../../../../backend/src/core/tests/cache-invalidation.coverage.spec.ts) | **A coverage spec** - fails the build on an owner-scoped write without a cache-invalidation declaration - **new in #27** (not in the original) |
+| [cache-invalidation.interceptor.spec.ts](../../../../backend/src/core/tests/cache-invalidation.interceptor.spec.ts) | The invalidation interceptor: reads skipped, owner/paths/none resolution, unsafe paths dropped, no header on error - **new in #27** (not in the original) |
+| [no-organization-membership-lookup.spec.ts](../../../../backend/src/core/tests/no-organization-membership-lookup.spec.ts) | The fail-closed default membership lookup - **new in #27** (citadel-only, until #28) |
+| [parse-org-id.spec.ts](../../../../backend/src/core/tests/parse-org-id.spec.ts) | `parseOrgId()`, including the `1e3` case - **ported in #27** to `backend/src/core/tests/parse-org-id.spec.ts` |
 | [parse-id.spec.ts](../../../../backend/src/core/tests/parse-id.spec.ts) | The generic id parser - **ported in #26** to `backend/src/core/tests/parse-id.spec.ts` |
-| [current-owner.decorator.spec.ts](./code_sample/backend/src/core/tests/current-owner.decorator.spec.ts) | `@CurrentOwner()` |
+| [current-owner.decorator.spec.ts](../../../../backend/src/core/tests/current-owner.decorator.spec.ts) | `@CurrentOwner()` - **ported in #27** to `backend/src/core/tests/current-owner.decorator.spec.ts` |
 | [current-user.decorator.spec.ts](../../../../backend/src/core/tests/current-user.decorator.spec.ts) | `@CurrentUser()` - **already in citadel, no port** |
 | [strict-validation.pipe.spec.ts](../../../../backend/src/core/tests/strict-validation.pipe.spec.ts) | `@StrictBody()` rejecting unknown fields - **ported in #26** to `backend/src/core/tests/strict-validation.pipe.spec.ts` (extended with edge cases) |
 | [jwt.guard.spec.ts](../../../../backend/src/core/tests/jwt.guard.spec.ts) | The `401` gate, key rotation, session lookup - **already in citadel, no port** (env prefix only) |
 | [admin.guard.spec.ts](../../../../backend/src/core/tests/admin.guard.spec.ts) | `AdminGuard` - the global admin path - **already in citadel, no port** |
 | [http-exception.filter.spec.ts](../../../../backend/src/core/tests/http-exception.filter.spec.ts) | The uniform error body shape - **already in citadel, no port** |
-| [cache-invalidation.decorator.spec.ts](./code_sample/backend/src/core/tests/cache-invalidation.decorator.spec.ts) | `@CacheInvalidation()` |
+| [cache-invalidation.decorator.spec.ts](../../../../backend/src/core/tests/cache-invalidation.decorator.spec.ts) | `@CacheInvalidation()` - **ported in #27** to `backend/src/core/tests/cache-invalidation.decorator.spec.ts` |
 | [cache-token.service.spec.ts](../../../../backend/src/core/tests/cache-token.service.spec.ts) | The per-caller cache token - **already in citadel, no port** (env prefix only) |
 | [app.module.spec.ts](../../../../backend/src/core/tests/app.module.spec.ts) | Global guard registration order - `JwtGuard` before `OwnerContextGuard` - **already in citadel, no port** (env prefix only) |
-| [support/](./code_sample/backend/src/core/tests/support/) | Shared test support - **copy the whole directory** |
+| [support/](../../../../backend/src/core/tests/support/) | Shared test support (`route-discovery.ts`, used by every coverage spec) - **ported in #27** to `backend/src/core/tests/support/`, with citadel's `KNOWN_CONTROLLERS` |
 
-`min-org-role.coverage.spec.ts` is the file the project documentation referred to without ever
-naming. It is the single most important test file in this list: without it, a new route can
-silently opt out of the owner-scoped contract while the whole suite stays green.
+The three coverage specs (`min-org-role`, `owner-scoped` and `cache-invalidation`) are the files the
+project documentation referred to without ever naming. They are the most important test files in
+this list: without them, a new route can silently opt out of the owner-scoped contract (no role, a
+plain `@Body()`, a `public` cache class or no invalidation) while the whole suite stays green.
 
 ## 10. Bank reference for role enforcement
 

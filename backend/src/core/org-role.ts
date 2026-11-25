@@ -35,7 +35,7 @@ export function hasMinRole(role: OrgRole, min: OrgRole): boolean {
 
 /**
  * Builds the uniform organization-role 403, thrown by the owner-context
- * guard, the payment-generated transaction rule and the organization rename.
+ * guard, the organization rename and any domain-specific role rule.
  * It names neither the resource nor the required role; the global filter
  * renders it as `{ error: { code: 'FORBIDDEN', message: 'Forbidden' },
  * statusCode: 403, timestamp }`.

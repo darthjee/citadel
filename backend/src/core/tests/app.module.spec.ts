@@ -1,6 +1,14 @@
 import { ConfigService } from '@nestjs/config';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { buildJwtSignOptions, DEFAULT_ACCESS_TOKEN_TTL_MS } from '../../app.module.js';
+import { AppModule, buildJwtSignOptions, DEFAULT_ACCESS_TOKEN_TTL_MS } from '../../app.module.js';
+import { AdminGuard } from '../admin.guard.js';
+import { CacheInvalidationInterceptor } from '../cache-invalidation.interceptor.js';
+import { JwtGuard } from '../jwt.guard.js';
+import { NoOrganizationMembershipLookup } from '../no-organization-membership-lookup.js';
+import { ORGANIZATION_MEMBERSHIP_LOOKUP } from '../organization-membership-lookup.js';
+import { OriginGuard } from '../origin.guard.js';
+import { OwnerContextGuard } from '../owner-context.guard.js';
 
 // Covers `AppModule`'s `JwtModule.registerAsync` sign-options wiring in
 // isolation (extracted as `buildJwtSignOptions`) — booting the full
@@ -40,5 +48,27 @@ describe('buildJwtSignOptions', () => {
       expect(decoded.exp).toBeGreaterThanOrEqual(nowSeconds + 3_600 - 1);
       expect(decoded.exp).toBeLessThanOrEqual(nowSeconds + 3_600 + 1);
     });
+  });
+});
+
+type ProviderEntry = { provide?: unknown; useClass?: unknown } | (abstract new (...args: never[]) => unknown);
+
+describe('AppModule providers', () => {
+  const providers = (): ProviderEntry[] => Reflect.getMetadata('providers', AppModule) as ProviderEntry[];
+  const classesFor = (token: unknown): unknown[] =>
+    providers()
+      .filter((entry) => typeof entry === 'object' && entry.provide === token)
+      .map((entry) => (entry as { useClass?: unknown }).useClass);
+
+  it('registers the global guards in order, OwnerContextGuard right after JwtGuard', () => {
+    expect(classesFor(APP_GUARD)).toEqual([OriginGuard, JwtGuard, OwnerContextGuard, AdminGuard]);
+  });
+
+  it('registers CacheInvalidationInterceptor as a global interceptor', () => {
+    expect(classesFor(APP_INTERCEPTOR)).toContain(CacheInvalidationInterceptor);
+  });
+
+  it('binds the membership lookup port to the fail-closed default', () => {
+    expect(classesFor(ORGANIZATION_MEMBERSHIP_LOOKUP)).toEqual([NoOrganizationMembershipLookup]);
   });
 });

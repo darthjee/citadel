@@ -1,14 +1,25 @@
-import { CanActivate, ExecutionContext, Get, INestApplication, Injectable, Module, ValidationPipe } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Get,
+  INestApplication,
+  Injectable,
+  Module,
+  Post,
+  ValidationPipe,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, NestFactory } from '@nestjs/core';
 import type { Request } from 'express';
 import request from 'supertest';
+import { CacheInvalidationInterceptor } from '../cache-invalidation.interceptor.js';
 import { CachePolicyInterceptor } from '../cache-policy.interceptor.js';
 import { CurrentOwner } from '../current-owner.decorator.js';
 import { HttpExceptionFilter } from '../http-exception.filter.js';
 import { LazyModuleLoaderService } from '../lazy-module-loader.service.js';
 import { LoggingModule } from '../logging.module.js';
-import type { OrgRole } from '../org-role.js';
+import { MinOrgRole } from '../min-org-role.decorator.js';
+import { OrgRole } from '../org-role.js';
 import { ORGANIZATION_MEMBERSHIP_LOOKUP, type OrganizationMembershipLookup } from '../organization-membership-lookup.js';
 import { OwnerContextGuard } from '../owner-context.guard.js';
 import type { OwnerContext } from '../owner-context.js';
@@ -16,12 +27,15 @@ import { OwnerScopedController } from '../owner-scoped.decorator.js';
 
 // Proves the owner-context mechanism depends only on `core/` and the `ORGANIZATION_MEMBERSHIP_LOOKUP`
 // port: nothing here imports `src/auth/`. The membership check is a fake, and `request.user` is set by
-// a stub guard standing in for `JwtGuard`. A lazy domain module (e.g. `bank`) registers its controller
+// a stub guard standing in for `JwtGuard`. A lazy domain module (e.g. `<module>`) registers its controller
 // at boot and only loads its services on the first request, so the global `OwnerContextGuard` covers
 // it exactly like here — this spec's controller even resolves its service through
 // `LazyModuleLoaderService`, as a lazy module's controller does.
 
-const MEMBERSHIPS = new Map<string, OrgRole>([['7:3', 'owner']]);
+const MEMBERSHIPS = new Map<string, OrgRole>([
+  ['7:3', 'owner'],
+  ['9:3', 'user'],
+]);
 
 class FakeMembershipLookup implements OrganizationMembershipLookup {
   calls: Array<[number, number]> = [];
@@ -70,6 +84,12 @@ class LedgerController {
     const moduleRef = await this.lazyModuleLoader.loadOnFirstRequest(() => LedgerModule);
     return moduleRef.get(LedgerService).describe(owner);
   }
+
+  @Post('entries.json')
+  @MinOrgRole(OrgRole.ADMIN)
+  create(@CurrentOwner() owner: OwnerContext): { owner: OwnerContext } {
+    return { owner };
+  }
 }
 
 describe('owner-scoped mechanism without the auth module (e2e)', () => {
@@ -88,6 +108,7 @@ describe('owner-scoped mechanism without the auth module (e2e)', () => {
         { provide: APP_GUARD, useClass: StubUserGuard },
         { provide: APP_GUARD, useClass: OwnerContextGuard },
         { provide: APP_INTERCEPTOR, useClass: CachePolicyInterceptor },
+        { provide: APP_INTERCEPTOR, useClass: CacheInvalidationInterceptor },
         { provide: APP_FILTER, useClass: HttpExceptionFilter },
       ],
     })
@@ -112,8 +133,8 @@ describe('owner-scoped mechanism without the auth module (e2e)', () => {
 
     expect(response.body).toEqual({ owner: { kind: 'user', userId: 7 }, lazy: true });
     expect(lookup.calls).toEqual([]);
-    expect(response.headers['x-cache-allow']).toBe('true');
-    expect(response.headers['x-skip-cache']).toBeUndefined();
+    expect(response.headers['x-skip-cache']).toBe('true');
+    expect(response.headers['x-cache-invalidate']).toBeUndefined();
   });
 
   it('resolves the organization for a member through the port', async () => {
@@ -147,5 +168,46 @@ describe('owner-scoped mechanism without the auth module (e2e)', () => {
 
   it('answers the uniform 404 when no user was authenticated', async () => {
     await request(app.getHttpServer()).get('/ledger/owner.json').expect(404);
+  });
+
+  describe('on a write', () => {
+    it('invalidates the personal prefix after a successful personal write', async () => {
+      const response = await request(app.getHttpServer()).post('/ledger/entries.json').set('x-test-user', '7').expect(201);
+
+      expect(response.body).toEqual({ owner: { kind: 'user', userId: 7 } });
+      expect(response.headers['x-cache-invalidate']).toBe('/ledger');
+    });
+
+    it('invalidates the organization prefix after a successful organization write', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/orgs/3/ledger/entries.json')
+        .set('x-test-user', '7')
+        .expect(201);
+
+      expect(response.headers['x-cache-invalidate']).toBe('/orgs/3/ledger');
+    });
+
+    it('answers the uniform 404 to a non-member, with no invalidation', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/orgs/3/ledger/entries.json')
+        .set('x-test-user', '8')
+        .expect(404);
+
+      expect(response.headers['x-cache-invalidate']).toBeUndefined();
+    });
+
+    it('answers the uniform 403 to a member below the minimum role, with no invalidation', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/orgs/3/ledger/entries.json')
+        .set('x-test-user', '9')
+        .expect(403);
+
+      expect(response.body).toEqual({
+        error: { code: 'FORBIDDEN', message: 'Forbidden' },
+        statusCode: 403,
+        timestamp: expect.any(String),
+      });
+      expect(response.headers['x-cache-invalidate']).toBeUndefined();
+    });
   });
 });

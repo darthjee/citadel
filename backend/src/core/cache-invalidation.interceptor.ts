@@ -5,8 +5,9 @@ import type { Request, Response } from 'express';
 import { type Observable, tap } from 'rxjs';
 import { type CacheInvalidation, INVALIDATION_KEY } from './cache-invalidation.decorator.js';
 
-// Response header the Ward proxy reads (on a 2xx non-GET response) to recursively clear the
-// listed cached path subtrees; the proxy always strips it. See `docs/agents/architecture/caching.md`.
+// Response header listing (on a 2xx non-GET response) the cached path subtrees to recursively
+// clear. The proxy will read and strip it once per-user caching lands (#33); until then it is
+// forwarded untouched. See `docs/agents/architecture/caching.md`.
 export const CACHE_INVALIDATE_HEADER = 'X-Cache-Invalidate';
 
 const READ_METHODS = new Set(['GET', 'HEAD']);

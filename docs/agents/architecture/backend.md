@@ -24,7 +24,8 @@ backend/src/
 ├── main.ts                    # boots the app: cookie-parser, global ValidationPipe, PORT
 ├── app.module.ts              # root module: ConfigModule, TypeOrmModule, JwtModule (global),
 │                               #   EventEmitterModule, AuthModule, core providers, global
-│                               #   OriginGuard + JwtGuard + AdminGuard, HttpExceptionFilter
+│                               #   OriginGuard + JwtGuard + OwnerContextGuard + AdminGuard,
+│                               #   CachePolicy/CacheInvalidation interceptors, HttpExceptionFilter
 ├── core/                      # Core layer — always resident, independent of any feature module
 │   ├── origin.guard.ts        #   global CanActivate rejecting cross-site mutating requests (CSRF)
 │   ├── jwt.guard.ts           #   global CanActivate verifying the access-token cookie
@@ -37,6 +38,17 @@ backend/src/
 │   ├── locked.exception.ts    #   423 Locked HttpException
 │   ├── strict-validation.pipe.ts #  @StrictBody(): strict per-parameter body validation (unknown fields → 400)
 │   ├── parse-id.ts            #   parseId / ownerNotFound: strict route id parsing, uniform 404
+│   ├── parse-org-id.ts        #   parseOrgId: strict :orgId parsing (built on parseId)
+│   ├── org-role.ts            #   OrgRole (user < admin < owner), hasMinRole, orgRoleForbidden
+│   ├── owner-context.ts       #   OwnerContext / OwnerScope types, ownerRole, ownerWhere, ownerSqlWhere
+│   ├── owner-context.guard.ts #   global CanActivate resolving request.ownerContext on @OwnerScoped() routes
+│   ├── owner-scoped.decorator.ts #  @OwnerScoped() / @OwnerScopedController(path)
+│   ├── current-owner.decorator.ts #  @CurrentOwner(): injects request.ownerContext
+│   ├── min-org-role.decorator.ts #  @MinOrgRole(role): a route's minimum organization role
+│   ├── organization-membership-lookup.ts # ORGANIZATION_MEMBERSHIP_LOOKUP port (implemented by auth/)
+│   ├── no-organization-membership-lookup.ts # fail-closed default lookup (until #28)
+│   ├── cache-invalidation.decorator.ts #  InvalidatesOwner / InvalidatesPaths / NoCacheInvalidation
+│   ├── cache-invalidation.interceptor.ts # global APP_INTERCEPTOR emitting X-Cache-Invalidate
 │   ├── cache-token.service.ts #   HMAC cache-token generation for Tent cache keying
 │   ├── lazy-module-loader.service.ts  # thin wrapper around Nest's LazyModuleLoader
 │   └── tests/
@@ -149,13 +161,46 @@ that, only modules that import `JwtModule` directly (not just `AuthModule`) can 
 
 ## Admin Guard
 
-`core/admin.guard.ts` is another global `APP_GUARD`, registered in `AppModule` right after
-`JwtGuard` (`APP_GUARD`s run in registration order, and `AdminGuard` depends on `request.user`
+`core/admin.guard.ts` is another global `APP_GUARD`, registered in `AppModule` after
+`JwtGuard` and `OwnerContextGuard` (`APP_GUARD`s run in registration order, and `AdminGuard` depends on `request.user`
 already being populated by `JwtGuard`). It is a no-op unless the route (or controller) is
 annotated `@AdminOnly()` (`core/admin-only.decorator.ts`), in which case it requires
 `request.user.isAdmin === true`, throwing `403 Forbidden` otherwise — it never re-verifies the
 JWT itself. See `docs/agents/modules/auth.md`'s "Admin authorization" section for the
 `isAdmin` claim/provisioning details.
+
+## Owner context
+
+Domain data may be owned by a user or by an organization. `core/owner-context.guard.ts`
+(`OwnerContextGuard`) is the one place that resolves a request's owner and enforces the caller's
+organization role. Full specification: [owner-context.md](../specs/orgs/owner-context.md),
+[roles.md](../specs/orgs/roles.md).
+
+- **Chain.** Global `APP_GUARD`s run in registration order: `OriginGuard` -> `JwtGuard` ->
+  `OwnerContextGuard` -> `AdminGuard`. `OwnerContextGuard` needs `request.user`, so it stays right
+  after `JwtGuard` (`core/tests/app.module.spec.ts` asserts the order). It is a no-op on routes
+  without `@OwnerScoped()`.
+- **Check order** (the contract): no `request.user` -> uniform 404; no `:orgId` -> the personal
+  context `{ kind: 'user', userId }`, no lookup; `parseOrgId()` fails -> uniform 404, no lookup;
+  `findRole()` answers `null` -> uniform 404 (unknown, foreign or non-member organization, **global
+  admins included** - there is no admin bypass); role below `@MinOrgRole` -> uniform 403
+  (`orgRoleForbidden()`); then `request.ownerContext` is set and the handler runs. 404 always comes
+  before 403, so organizations cannot be enumerated.
+- **Role source.** The role is re-read through the port on every request: never cached, never taken
+  from a body, query or header. The personal context counts as `owner` (`ownerRole()`).
+- **Owner filters.** Owner-scoped queries filter only through `ownerWhere(scope)` (TypeORM) or
+  `ownerSqlWhere(scope, alias)` (raw SQL, `{ sql, params }`), which always constrain both
+  `userId` and `organizationId`.
+- **Decorators.** `@OwnerScopedController(path)` mounts the controller under `<path>` and
+  `orgs/:orgId/<path>`, marks it `@OwnerScoped()`, sets `@CachePolicy(CacheClass.UserScoped)` and
+  declares `InvalidatesOwner()`. Handlers read the owner with `@CurrentOwner()` (a 500 if it is
+  missing - a programming error), declare `@MinOrgRole(role)` on every write, and take bodies only
+  through `@StrictBody()`.
+- **Port.** `core/` never imports `auth/`: the guard depends on the `ORGANIZATION_MEMBERSHIP_LOOKUP`
+  port (`core/organization-membership-lookup.ts`). Until the organizations backend lands (#28),
+  `AppModule` binds it to the fail-closed `NoOrganizationMembershipLookup`, which answers `null`
+  for everyone, so every `/orgs/:orgId/...` route answers the uniform 404. #28 binds
+  `OrganizationService` (`useExisting`) in `AuthModule` instead.
 
 ## Error responses
 
@@ -299,6 +344,14 @@ against a real MySQL:
 - **`LazyModuleLoader`-dependent specs**: need a real Nest application context
   (`NestFactory.createApplicationContext`), not a bare `Test.createTestingModule` — the loader's
   internals (module scanning) aren't fully wired by the lightweight testing container.
+- **Coverage specs** (`core/tests/*.coverage.spec.ts`): read only static decorator metadata of
+  every `*.controller.ts` (shared walker: `core/tests/support/route-discovery.ts`, whose
+  `KNOWN_CONTROLLERS` must list every real controller). `cache-policy` requires a cache class on
+  every route; `min-org-role` requires a valid `@MinOrgRole` on every owner-scoped write;
+  `owner-scoped` forbids a plain `@Body()` and the `public` class on owner-scoped routes;
+  `cache-invalidation` requires an invalidation declaration on every owner-scoped write. Each has
+  fixture tests proving it flags violations. The "> 0 owner-scoped routes" assertions return with
+  the first owner-scoped controller (#31).
 
 - **Integration specs** (`*.integration-spec.ts`): run by `yarn test:integration` (its own
   `jest.integration.config.mjs`, `--runInBand`, no coverage) against the throwaway
