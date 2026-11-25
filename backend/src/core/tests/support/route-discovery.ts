@@ -21,6 +21,7 @@ export const KNOWN_CONTROLLERS = [
   'AuthorizationRequestController',
   'HealthController',
   'OrganizationController',
+  'TodoController',
 ];
 
 export type ClassConstructor = new (...args: never[]) => unknown;

@@ -20,6 +20,7 @@ import { buildSecretKeys } from './core/secret-keys.js';
 import { HealthController } from './health/health.controller.js';
 import { HealthService } from './health/health.service.js';
 import { MailModule } from './mail/mail.module.js';
+import { TodoModule } from './todo/todo.module.js';
 
 // Default access-token lifetime (15 minutes, in milliseconds) used when
 // `CITADEL_PLACEHOLDER_ACCESS_TOKEN_TTL_MS` is unset — must match
@@ -48,8 +49,9 @@ export function buildJwtSignOptions(configService: ConfigService): { expiresIn: 
  * Root application module. Wires global configuration, the database
  * connection, and the core JWT guard/cache-token service (per the issue's
  * "Core" module classification — always resident, at boot, independent of
- * any feature module); feature modules (Auth, and later lazy modules) are
- * imported here as they are introduced. `JwtModule` signs with the current
+ * any feature module); feature modules (Auth, Mail, the Todo example module,
+ * and later lazy modules) are imported here as they are introduced. `TodoModule`
+ * is always on (not lazy). `JwtModule` signs with the current
  * secret key only (`buildSecretKeys(...).current`); retired keys are
  * accepted solely by `JwtGuard` when verifying.
  *
@@ -86,6 +88,7 @@ export function buildJwtSignOptions(configService: ConfigService): { expiresIn: 
     AuthModule,
     LoggingModule,
     MailModule,
+    TodoModule,
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
