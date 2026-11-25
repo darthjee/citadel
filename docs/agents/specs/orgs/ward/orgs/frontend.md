@@ -1,346 +1,338 @@
 # Organizations - Frontend
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Endpoints](./endpoints.md), [Roles](./roles.md), [Caching](./caching.md),
-[Response](./response.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-The frontend side of organizations (#47, with roles from #144) is **cross-cutting**: it is not a
-page set that owns the context concept, it is the mechanism every user-or-organization-owned
-module registers into once and then works in both contexts for free.
+The organization UI is a **context mechanism**, not a screen set.
 
-- **Two URL prefixes**: Personal `#/<module>/...`, organization `#/orgs/:orgId/<module>/...`.
-- **The router** resolves which context from the hash, and a malformed id resolves to not-found
-  **without issuing a request**.
-- **The context is passed as an argument** to API clients, never read from global state.
-- **The last used context** is remembered per user in local storage and applied only at the entry
-  point.
-- **The backend is the authority**; the frontend only hides what the role cannot do. `can()`
-  **fails closed**.
-- **A `403` refreshes the role**, so a role changed mid-session is picked up on the next failure.
-
-## Stack and layout
-
-- React 19 + Bootstrap / react-bootstrap, Vite, Jasmine + c8.
-- ESLint: 2-space indent, single quotes, semicolons required, **max complexity 10**,
-  **max 300 lines per file**, JSDoc required on public API.
-- Every backend domain module gets a matching `client/<Name>Client.js` and its pages under
-  `components/resources/<area>/pages/`.
-
-### Files involved
-
-| File | Role |
+| Piece | What it does |
 |---|---|
-| `utils/routing/routes.js` | The three route tables plus `SECTIONS_CONTEXT` |
-| `utils/routing/HashRouteResolver.js` | Resolves `{ page, context }` from the hash |
-| `utils/routing/Router.js` | `Router.extractContextParams(pattern, hash)` |
-| `utils/routing/sectionTarget.js` | `switchTargetFor(hash)` - where a context switch lands |
-| `utils/routing/hashQuery.js` | `hashQuery` / `withHashQuery` for the `?...` part of the hash |
-| `utils/context/ownerContext.js` | `contextPath()`, `contextHash()`, `landingFor()` |
-| `utils/context/ContextStorage.js` | The remembered context, per user |
-| `utils/context/entryResolution.js` | Applies the remembered context at the entry point |
-| `utils/permissions/orgPermissions.js` | `ROLES`, `ACTIONS`, `can(role, action)` |
-| `components/common/ownerContext/OwnerContextProvider.jsx` | Provides `role`, `refreshRole`, `buildOwnerContextValue` |
-| `components/common/ownerContext/hooks/useOwnerContext.js` | Reads the context |
-| `components/common/ownerContext/hooks/useCan.js` | `useCan(action)` for the active context |
-| `components/common/ownerContext/controllers/OrgListController.js` | Org list per session |
-| `components/common/ownerContext/controllers/forbiddenRefreshEffect.js` | Refreshes the role on a `403` |
-| `components/common/header/contextSwitcher/` | The switcher UI |
-| `components/resources/organizations/pages/` | `OrganizationNew`, `OrganizationOverview`, `OrganizationEdit` |
-| `client/PermissionEvents.js` | The `permission:forbidden` window event |
-| `client/ApiClient.js` / `client/ApiError.js` | The HTTP layer and its error type |
+| **Routing** | Derives `{ page, context }` from the hash. The context is in the URL |
+| **Context switcher** | Personal plus the organizations, in the header |
+| **`ContextStorage`** | Remembers the last context, per user |
+| **`entryResolution`** | Applies the remembered context at the entry point only |
+| **`OwnerContextProvider`** | Supplies the active context, the role and `refreshRole` |
+| **`useCan(action)`** | Decides what to render for the current role |
+| **`OrgListController`** | Loads `GET /orgs.json` once per session |
+| **`forbiddenRefreshEffect`** | Refreshes the role on a `403`, once per burst |
 
-## URL and routing
+The whole mechanism exists so that a domain module registers its paths **once** and works in both
+contexts, with no module-specific knowledge of organizations.
 
-### The two prefixes
+## Routing
 
-| Context | UI path |
+Base: `frontend/assets/js/utils/routing/`.
+
+### The hash is the source of truth
+
+| Context | Hash |
 |---|---|
 | Personal | `#/<module>/...` |
-| an organization | `#/orgs/:orgId/<module>/...` |
+| Organization | `#/orgs/:orgId/<module>/...` |
+| Organization pages | `#/orgs/new`, `#/orgs/:orgId`, `#/orgs/:orgId/edit` |
 
-### Three route tables
+Because the context lives in the URL, **two browser tabs can work on different contexts at the same
+time**. It also means a link is shareable and a reload restores the same context.
 
-`routes.js` holds three tables. The split is the mechanism, not a convention.
+### The four route tables
 
-| Table | Contents |
+`routes.js` registers each module's paths **once**, and the resolver composes them per context.
+
+| Table | Meaning |
 |---|---|
-| `ROUTES_PERSONAL` | Personal-only routes - includes `/orgs/new` |
-| `ROUTES_ORG_ONLY` | `#/` overview, `#/edit` rename |
-| `ROUTES_CONTEXT` | Context-aware routes. **Modules add their own paths here, never mentioning `orgs`** |
+| `ROUTES_PERSONAL` | Paths that exist only in Personal |
+| `ROUTES_ORG_ONLY` | Paths that exist only under an organization |
+| `ROUTES_CONTEXT` | Paths that exist in **both** contexts - the ordinary case |
+| `SECTIONS_CONTEXT` | Sections reachable in both contexts, for switching |
 
-The third table is the whole trick: a module registers `/bank/accounts` **once** and it works in
-both contexts, because the resolver decides the context before matching.
+`ROUTES_CONTEXT` entries **never mention `orgs`**. That is the point: the same entry produces
+`#/bank/accounts` in Personal and `#/orgs/1/bank/accounts` in an organization.
 
 ### Resolution order
 
-`HashRouteResolver.resolve()` runs in this order:
+`HashRouteResolver.resolve()` returns `{ page, context }`, and the order matters.
 
-1. Match **`ROUTES_PERSONAL`** first.
-2. Strip an **`/orgs/<seg>`** prefix.
-   - A malformed `<seg>` - outside `^[1-9][0-9]*$`, or above **2147483647** - resolves to
-     **`not-found` with no request issued**.
-3. Match the remainder against **`ROUTES_ORG_ONLY`** and **`ROUTES_CONTEXT`**.
-4. Otherwise, context-aware routes match as **Personal**.
-5. Unknown paths fall back to `home`.
+1. Match against **personal-only** routes first.
+2. If the hash starts with `/orgs/<seg>`, validate `<seg>` and strip it, then match the remainder
+   against the context and organization-only routes.
+3. Fall back to `home`.
 
-It returns **`{ page, context }`**, where `context` is:
+Personal first is deliberate: a personal page named like an organization page must not be swallowed
+by the organization prefix.
 
-```
-{ kind: 'personal' }
-{ kind: 'organization', orgId }
-```
+### The malformed-id guard
 
-Pages read their params with `Router.extractContextParams(pattern, hash)`, against the
-**stripped** path - not the raw hash.
+The segment must match **`^[1-9][0-9]*$`** and must not exceed **`2147483647`**.
 
-### Malformed ids never reach the network
-
-The `2147483647` bound and the `^[1-9][0-9]*$` pattern are a **client-side mirror** of the
-backend's `parseOrgId()` strictness. A bad id in the URL produces the `not-found` view with **no
-API call at all**, which is why a typo in the address bar does not generate a `404` round trip.
-
-## Context helpers
-
-Three helpers in `utils/context/ownerContext.js`, so no page builds a path by hand:
-
-| Helper | Purpose |
+| Hash | Result |
 |---|---|
-| `contextPath(context, '/x.json')` | Builds the **API** path for the context |
-| `contextHash(context, '/x')` | Builds a **hash link** for the context |
-| `landingFor(context)` | The switch target: `#/` for Personal, `#/orgs/:orgId` for an organization |
+| `#/orgs/7/bank/accounts` | Resolves, context = organization 7 |
+| `#/orgs/0/...` | `not-found`, **no request issued** |
+| `#/orgs/007/...` | `not-found` |
+| `#/orgs/abc/...` | `not-found` |
+| `#/orgs/1e3/...` | `not-found` |
+| `#/orgs/2147483648/...` | `not-found` |
 
-Two rules that follow:
+Resolving to `not-found` **without issuing a request** is the point: a malformed id never reaches
+the API. It mirrors the backend's `parseOrgId()`, but it is **not** the security boundary - a direct
+call bypasses it entirely. See [Owner context](./owner-context.md).
 
-- **API clients take the context as an argument**, never from global state. A client that reads a
-  module-level "current organization" would make the context ambient and reintroduce the leak the
-  backend guard prevents.
-- **The query string is dropped** on a context switch.
+### `extractContextParams()`
 
-## The provider
+Pulls `:orgId` and the remaining params out of the stripped path, so the page component receives a
+plain params object and never parses the hash itself.
 
-- `AppHelper` wraps the header **and** the page in `OwnerContextProvider`.
-- Read the context with `useOwnerContext()`.
-- **`GET /orgs.json` is loaded once per session** - after login or on page load.
-- It is **refetched after a create or a rename**, and **cleared on logout**.
-- **Pages are keyed by context**, so moving between organizations **remounts** them.
+### `sectionTargetFor()`
 
-The last point matters: remounting is what guarantees no state from organization A is displayed
-while organization B's data loads.
+Decides where a context switch lands.
 
-## Last used context
+| Rule | Detail |
+|---|---|
+| Segment-boundary matching | `/bank` matches `/bank/...` but not `/banking` |
+| Query string dropped | The `?...` part of the hash does not affect matching |
+| Fallback | The module's landing path when the current section does not exist in the target context |
 
-`ContextStorage.js` plus `entryResolution.js`.
+This is why switching from a Personal page that has no organization equivalent lands somewhere
+valid instead of on a broken route.
+
+## `contextPath` and `contextHash`
+
+Two builders, both taking the context as an **argument**.
+
+| Function | Produces |
+|---|---|
+| `contextPath(context, '/x.json')` | The API path: `/x.json` in Personal, `/orgs/1/x.json` in an organization |
+| `contextHash(context, '/x')` | The hash link: `#/x` or `#/orgs/1/x` |
+| `landingFor(context)` | The context's landing page |
+
+**Clients take the context as an argument, never from a module-level "current organization".**
+An ambient current context would reopen the leak the backend guard closes, and would make two tabs
+in different contexts interfere.
+
+## Remembered context
+
+### `ContextStorage`
 
 | Property | Value |
 |---|---|
-| Storage key | **`ward.context.<userId>`** |
-| Stored value | The **organization id only** - nothing else |
-| Access | Every access in `try` / `catch`; unavailable storage **means Personal** |
-| Applied when | **Only at the entry point** (`''` or `#/`), **after** the org list loads |
-| Applied if | The id **is in the list** - otherwise it is **forgotten** |
-| Updated by | Context-aware page visits and switcher picks. **Context-neutral pages do not** update it |
-| On logout | **Not cleared** |
+| Key | `ward.context.<userId>` |
+| Stored value | The **organization id only** - no name, no role, no cached body |
+| Failure mode | Every access wrapped in `try` / `catch`, falling back to Personal |
+| Cleared on logout | **No** |
 
-Three consequences worth noting:
+Storing only the id is what makes a stale value cheap: nothing to invalidate, nothing to keep in
+sync, and no data disclosure if storage is read by someone else.
 
-1. **It is not applied on a deep link.** Only `''` or `#/` uses the remembered context; a link to
-   `#/orgs/7/bank/accounts` goes to organization 7 regardless.
-2. **A stale id is dropped, not trusted.** Since the id is validated against the loaded list, a
-   membership removed in the meantime falls back to Personal. The backend would answer `404`
-   anyway - the frontend just does not create the situation.
-3. **Logout does not clear it**, so logging back in returns you to the last organization, provided
-   you still belong to it.
+Not clearing on logout is deliberate - the rules in `entryResolution` handle a stale id instead.
 
-## The switcher
+### `entryResolution`
 
-`components/common/header/contextSwitcher/`, placed **left of the header after the brand**.
+Applied **only** at the entry point.
 
-It lists:
-
-1. **Personal**
-2. **Each of the user's organizations** - the active one is checked; names are **truncated with
-   the full name in the `title` attribute**
-3. **+ Create organization**
-
-Behavior:
-
-- **Hidden while logged out or pending** - a `pending` user has no usable session.
-- **Shows an inline error when `/orgs.json` fails** - the switcher degrades, it does not disappear
-  silently.
-- **With zero organizations it shows only Personal and Create organization.** This is the normal
-  state for a new user.
-- **Picking Personal stores it before navigating**, so the choice survives the next entry.
-
-## Section registry - where a switch lands
-
-`SECTIONS_CONTEXT` in `routes.js`, resolved by `switchTargetFor(hash)` in
-`utils/routing/sectionTarget.js`.
-
-- It maps **context-relative path prefixes** to that section's **list path**.
-- A switch made from a page whose stripped path matches a prefix **on a segment boundary** lands
-  on that **section's list in the new context**.
-- Anything else lands on `landingFor(context)`.
-- The **query string is dropped**, and each switcher item's `href` uses the same target - so a
-  middle-click and a normal click go to the same place.
-
-The point: switching context from a list page keeps you in that list; switching from a detail page
-does not try to carry the record id across organizations, because that id belongs to the other
-owner.
-
-Modules register their own rows. `bank`, as the documented example, registers `/bank/accounts`,
-`/bank/debts`, `/bank/investments`, `/bank/providers` (whose prefix also covers the accountant
-hand-off page) and `/bank/calendar` (which also covers the month view), and maps `/bank/bills` to
-the Providers list because the one-off bill pages have no list of their own.
-
-## Hash query
-
-`utils/routing/hashQuery.js` provides `hashQuery` and `withHashQuery` to read and write the
-`?...` part of the hash - for example the ledger's `?page=` and the list's `?archived=true`.
-
-It exists because the context lives in the hash too, so query params need their own small parser
-rather than the browser's `location.search`.
-
-## Pages
-
-| Route | Page | Contents |
-|---|---|---|
-| `#/orgs/new` | `OrganizationNew` | The create form. In `ROUTES_PERSONAL`, since creating is not itself an organization context |
-| `#/orgs/:orgId` | `OrganizationOverview` | **Name, role, and a Rename link** |
-| `#/orgs/:orgId/edit` | `OrganizationEdit` | The rename form |
-
-- `#/` and `#/edit` are in **`ROUTES_ORG_ONLY`** - they exist only under an organization prefix.
-- **A backend `404` or a malformed id renders the generic `NotFound` view**, which **forgets that
-  id if it was remembered** and offers "Go to Personal".
-- **Names are always rendered as React text**, never as HTML - the same rule as the backend's
-  escaping requirement.
-
-Note the divider the overview documents: the page shows **the caller's role**. There is no owner
-field, no member list, no member count - because the API never returns them. See
-[Response](./response.md).
-
-## Permissions
-
-The backend is the authority. The frontend **only hides what the role cannot do**, and it
-**fails closed**.
-
-### Role on the owner context
-
-`buildOwnerContextValue` (`OwnerContextProvider.jsx`) adds two things to the context value:
-
-| Field | Value |
+| Rule | Detail |
 |---|---|
-| `role` | **`owner` in Personal**; the active organization's `role` from `GET /orgs.json` in an organization; **`null` while loading or when the organization is not listed** |
-| `refreshRole` | The **org-list refetch** - `refreshOrgs` |
+| Applies at | `''` or `#/` - the bare entry |
+| Explicit URL wins | Any real hash is respected, and the remembered context is not applied |
+| Stale id | Not present in the loaded organization list → **forgotten**, and Personal is used |
+| Not attempted | A stale id is never used to issue a request |
 
-- **There is no separate role request.** The role rides along with the org list, which is why the
-  list is loaded once per session.
-- `DEFAULT_OWNER_CONTEXT` has **`role: null`**, so a component rendered before the list loads sees
-  no role rather than a guessed one.
+So a remembered organization that no longer exists produces Personal, not a `404`.
 
-### `can(role, action)`
+## The provider
 
-`utils/permissions/orgPermissions.js` exports `ROLES`, `ACTIONS` and `can(role, action)`. It
-**mirrors the backend matrix**, ranked `user` < `admin` < `owner`.
+Base: `frontend/assets/js/components/common/ownerContext/`.
 
-| Action (`ACTIONS`) | Minimum role |
+### `OwnerContextProvider.jsx`
+
+`buildOwnerContextValue` assembles the context value and adds `role` and `refreshRole`.
+
+| Field | Source |
 |---|---|
-| `WRITE` | `user` |
-| `UNDO_PAYMENT` | `admin` |
-| `EDIT_PAYMENT_TRANSACTION` | `admin` |
-| `MANAGE_ACCOUNTS` | `admin` |
-| `RENAME_ORGANIZATION` | `admin` |
-| `DELETE` | `admin` |
+| The active context | The resolved hash |
+| `role` | **`owner` in Personal**; the organization's role from the org list otherwise; `null` while loading or when the organization is not listed |
+| `refreshRole` | The org-list refetch - there is **no separate role request** |
 
-**It fails closed**: an unknown or `null` role, or an unknown action, answers **`false`**.
+`role: 'owner'` in Personal is what removes the need for a personal branch anywhere in the
+permission code.
 
-That is the exact counterpart of the backend rule that the personal context counts as `owner`
-(`role: 'owner'` in Personal) - so `can()` needs no personal-specific branch.
+`null` while loading is what makes `can()` render nothing until the role is known, instead of
+optimistically showing controls.
+
+### `useOwnerContext()`
+
+Reads the active context. Any component needing the current owner uses this, never the hash.
 
 ### `useCan(action)`
 
-`useCan(action)` (`ownerContext/hooks/useCan.js`) returns `can(role, action)` for the **active
-context**.
+Returns whether the current role may perform `action`. It delegates to `can(role, action)` from
+`utils/permissions/orgPermissions.js`.
 
-`useManageAccountsGate()` (`bank/common/form/hooks/`) returns `{ forbidden, allowed }` for the
-account forms, and sets `forbidden` **only once the role is known** - so the form does not flash a
-forbidden state while the list is still loading.
+```
+useCan(ACTIONS.RENAME_ORGANIZATION)   // admin and owner -> true, user -> false
+```
 
-### Role refresh on 403
+**Hidden controls are not a security boundary.** Every action a hidden control would perform is
+refused by the backend. See [Roles](./roles.md).
 
-This is the piece that makes a mid-session role change take effect without a reload.
+## `OrgListController`
 
-| Piece | Detail |
+| Property | Detail |
 |---|---|
-| Event | Window event **`permission:forbidden`** |
-| Module | `client/PermissionEvents.js`: `emitForbidden()`, `onForbidden(listener)` returning an unsubscribe |
-| Emitted by | **`ApiClient`, on any `403`, before throwing the `ApiError`** |
-| Consumed by | The provider mounts **`forbiddenRefreshEffect`** with `refreshOrgs` |
-| Burst control | An **in-flight flag collapses a burst of 403s into one refresh** |
+| Loads | `GET /orgs.json` |
+| Frequency | Once per session |
+| Exposes | `refreshOrgs` |
+| Empty list | A valid result - renders Personal plus the create entry |
+| Failure | The switcher shows an error; the rest of the app still works in Personal |
 
-Consequence: a role changed in the database applies on the **next request** server-side (the role
-is re-read from the DB per request - see [Roles](./roles.md)), and the **UI catches up on the next
-`403`**, not on the next page load.
+`refreshOrgs` is also what `refreshRole` calls. That is why a role change costs one list request,
+not a dedicated endpoint.
 
-### Hidden controls for `user`
+## `forbiddenRefreshEffect`
 
-`admin` and `owner` see everything. For a `user`, the frontend hides:
+The recovery path for a stale role.
 
-- the account list's **New** button and its empty-list call to action;
-- on an account: **Edit / Rename**, **Archive / Unarchive**;
-- and further bank controls documented in the bank UI page;
-- the Edit page **skips its load**, and `#/orgs/:orgId/edit` is not reachable;
-- the whole gate **renders nothing while `role` is `null`**.
+```
+ApiClient receives 403
+  -> emits 'permission:forbidden' BEFORE throwing
+  -> forbiddenRefreshEffect sees the event
+  -> if a refresh is already in flight: ignore
+  -> otherwise: refreshOrgs()
+  -> the role updates, the controls update
+```
 
-None of this is a security boundary - every one of those actions is refused by the backend. Hiding
-is a UX affordance; the enforcement is in the service and in `@MinOrgRole`.
+Holds an **in-flight flag** so a page with five forbidden requests produces **one** refresh, not
+five. Without it, one role change would trigger N list requests, and each of the N `403`s another.
 
-## API errors
+The `403` **is** the signal. There is no polling, no push and no TTL-based refresh documented for
+this.
 
-Any non-`401` failure from `client/ApiClient.js` rejects with a `client/ApiError.js`, built from
-the backend's standard body `{ error: { code, message, details? }, statusCode, timestamp }`.
+### The visible sequence
 
-- `error.details` carries the full list of validation messages, present **only** on validation
-  failures and `undefined` otherwise.
-- A **`403`** also fires `PermissionEvents.emitForbidden()`, which refreshes the role.
-- In the bank pages, `classifyError` (`bank/common/bankErrors.js`) maps a `403` to the
-  **`forbidden`** kind, with `PERMISSION_DENIED_MESSAGE` ("You don't have permission to do this",
-  exported by `PermissionDenied.jsx`), rendered by `BankErrorAlert` as a plain danger alert with
-  **no Retry** - Retry is only for the `transient` kind.
-- **The organization rename form shows the same message on a `403`.**
+1. User holds `admin`. The UI shows Rename.
+2. The role drops to `user` in the database.
+3. User clicks Rename → **`403`**.
+4. The event fires, the list refetches, the role updates.
+5. Rename disappears.
 
-A `401` is different: `ApiClient` handles it in its own session-expired path, which is why the
-`403` branch is the only one that refreshes the role.
+Until step 3 the UI offers an action the backend will refuse. That is UX lag, not a security hole.
+
+## The context switcher
+
+Base: `frontend/assets/js/components/common/header/contextSwitcher/`.
+
+| Element | Behaviour |
+|---|---|
+| **Personal** | Always present, always first |
+| **Each organization** | The caller's organizations, from the org list |
+| **+ Create organization** | Present regardless of how many organizations exist |
+| Long names | Truncated visually; the `title` attribute carries the full name |
+| Active entry | Marked as checked |
+| `/orgs.json` failure | An error state inside the switcher |
+
+Positioned in the header, left of the header content after the brand.
+
+### Switching
+
+| From → To | Lands on |
+|---|---|
+| Personal → organization | The equivalent section if it exists, otherwise the organization landing |
+| Organization → Personal | The equivalent section if it exists, otherwise the Personal landing |
+| Organization → another organization | Same rule, per organization |
+
+`sectionTargetFor()` decides, using segment-boundary matching. The switch writes the new id to
+`ContextStorage` and navigates.
+
+## The organization pages
+
+Base: `frontend/assets/js/components/resources/organizations/pages/`.
+
+| Route | Page | Purpose |
+|---|---|---|
+| `#/orgs/new` | `OrganizationNew.jsx` | Create form |
+| `#/orgs/:orgId` | `OrganizationOverview.jsx` | Name, role, Rename link |
+| `#/orgs/:orgId/edit` | `OrganizationEdit.jsx` | Rename form |
+
+### Controllers
+
+| File | Role |
+|---|---|
+| `OrganizationNewController.js` | The create submit path |
+| `OrganizationEditController.js` | The rename submit path, and the `403` message |
+| `OrganizationFormController.js` | Shared form state and submit wiring |
+| `OrganizationLoader.js` | The overview load path |
+| `navigation.js` | Targets between the three pages |
+
+`OrganizationFormController.js` is what makes create and rename share one implementation. Without
+it, both forms have to be duplicated.
+
+### On a `403` in the rename form
+
+`OrganizationEditController` shows `PERMISSION_DENIED_MESSAGE` - the constant exported by
+`components/common/PermissionDenied.jsx`. A `404` resolves to the generic not-found view instead,
+which offers "Go to Personal".
+
+## After a write
+
+| Action | What the UI does |
+|---|---|
+| Create | `refreshOrgs()` so the switcher includes the new organization, then navigates to its overview |
+| Rename | `refreshOrgs()` so the switcher shows the new name; the overview re-reads |
+
+Both writes invalidate and refetch rather than patching local state. The list is small and the
+network call is cheap, so the simpler path wins over local reconciliation.
+
+## Role in Personal
+
+| Context | `role` |
+|---|---|
+| Personal | **`owner`** |
+| Organization, listed | The organization's role |
+| Organization, not listed | `null` |
+| While the list is loading | `null` |
+
+Because Personal is `owner`, `useCan(ACTIONS.MANAGE_ACCOUNTS)` is `true` in Personal without any
+special case. That is the whole reason the personal context needs no branch in the permission layer.
+
+## Two tabs
+
+| Situation | Behaviour |
+|---|---|
+| Tab A in Personal, Tab B in organization 1 | Both work; neither overwrites the other |
+| Tab A creates an organization | Tab B's switcher is stale until it refreshes |
+| Tab A renames | Tab B, if on the same organization, shows the old name until reload |
+
+`ContextStorage` holds **one** id per user - the last one used. It does not coordinate between tabs
+beyond that.
 
 ## What the frontend does not do
 
-- **It does not decide authorization.** Every hidden control corresponds to a backend refusal.
-- **It does not send a role.** `role` is never part of a request body - and the backend rejects
-  unknown body fields anyway.
-- **It does not send an owner.** `organizationId` comes from the URL, and the client builds the
-  path with `contextPath()`.
-- **It does not list members.** No such endpoint exists, and no page tries.
-- **It does not cache the role separately** from the org list - which is why a refresh is a list
-  refetch.
-- **It does not clear the remembered context on logout**, by design.
+| Not done | Where it belongs |
+|---|---|
+| Enforce permissions | The backend. The UI only decides what to render |
+| Cache organization data beyond the org list | The proxy, via `user-scoped` |
+| Parse `:orgId` for security | The backend. The client guard is UX and optimisation |
+| Validate the `name` authoritatively | The backend. The form may pre-check, the server decides |
+| Poll for role changes | Nothing polls; the `403` is the signal |
+| Remove members | Not built (#82) |
+| Manage roles | Not built (#82) |
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages describe the routing tables, the resolver order, the helpers, the storage
-key, the switcher, the section registry, the pages, the permission map and the `403` refresh in
-detail. They do **not** contain:
+The project documentation states the routing tables, the resolver, the storage rules, the provider
+fields, `useCan`, `OrgListController`, `forbiddenRefreshEffect` and the three pages. It does **not**
+contain:
 
-- the source of `HashRouteResolver`, `Route`, `entryResolution` or `OrgListController`;
-- the full route table contents beyond the three org routes and the bank rows given as examples;
-- how `OwnerContextProvider` keys pages by context (a React `key` prop, a wrapper component, or
-  equivalent);
-- the exact `href` markup of a switcher item beyond "uses the same target";
-- how name truncation is implemented (CSS versus JavaScript);
-- whether the switcher has an accessible label or keyboard navigation contract;
-- the Jasmine specs covering these pieces, beyond their presence under `frontend/specs/`;
-- whether `can()` mirrors the backend matrix exhaustively - the table above is the documented set,
-  and the docs do not claim it is complete for every module.
+- the **source** of any file in `frontend/assets/js/`;
+- how `App.jsx` / `AppController.js` select which resolver branch to run;
+- the exact form validation on the client, beyond the backend's `name` rules;
+- the in-flight window used by `forbiddenRefreshEffect` to collapse a burst;
+- whether the org list refreshes on login, on window focus, or only on demand;
+- the exact markup of the switcher, including the truncation width;
+- whether creating an organization navigates to the overview or stays on the form;
+- what the UI renders if `GET /orgs.json` itself fails with a `500`;
+- any loading skeleton or optimistic update behaviour.
 
-Read `frontend/assets/js/utils/` and `frontend/assets/js/components/` for the authoritative
-version. Nothing on this page is inferred beyond what the docs state.
+Read `frontend/assets/js/utils/routing/`, `frontend/assets/js/utils/context/`,
+`frontend/assets/js/components/common/ownerContext/` and the specs under `frontend/specs/` for the
+authoritative version. Nothing on this page is inferred beyond what the docs state.
