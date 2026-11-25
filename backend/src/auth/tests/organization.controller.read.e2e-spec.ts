@@ -56,11 +56,10 @@ describe('OrganizationController (e2e) — reading and renaming', () => {
       expect(response.body).toEqual([]);
     });
 
-    it('is user-scoped: X-Cache-Allow with a private Cache-Control', async () => {
+    it('is user-scoped: X-Skip-Cache with a private Cache-Control', async () => {
       const response = await request(ctx.current.app.getHttpServer()).get('/orgs.json').set('Cookie', [cookie]);
 
-      expect(response.headers['x-cache-allow']).toBe('true');
-      expect(response.headers['x-skip-cache']).toBeUndefined();
+      expect(response.headers['x-skip-cache']).toBe('true');
       expect(response.headers['cache-control']).toBe('private, no-store');
     });
 
@@ -77,11 +76,10 @@ describe('OrganizationController (e2e) — reading and renaming', () => {
       expect(Object.keys(response.body).sort()).toEqual(ORGANIZATION_KEYS);
     });
 
-    it('is user-scoped: X-Cache-Allow with a private Cache-Control', async () => {
+    it('is user-scoped: X-Skip-Cache with a private Cache-Control', async () => {
       const response = await showOrganization(ctx.current.app, cookie, 1);
 
-      expect(response.headers['x-cache-allow']).toBe('true');
-      expect(response.headers['x-skip-cache']).toBeUndefined();
+      expect(response.headers['x-skip-cache']).toBe('true');
       expect(response.headers['cache-control']).toBe('private, no-store');
     });
 
