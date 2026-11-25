@@ -1,14 +1,11 @@
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsString, Matches } from 'class-validator';
-import { MaxCodePoints, trimString } from '../../core/string-validators.js';
+import { MaxCodePoints, NO_CONTROL_CHARACTERS, trimString } from '../../core/string-validators.js';
 
 export { MaxCodePoints, trimString } from '../../core/string-validators.js';
 
 /** Longest accepted organization name, in code points (matches `varchar(255)`). */
 export const ORGANIZATION_NAME_MAX_LENGTH = 255;
-
-// Any Unicode "Control" (Cc) character: C0 controls (incl. `\u0000`, tab, newline), DEL and C1.
-const NO_CONTROL_CHARACTERS = /^[^\p{Cc}]*$/u;
 
 /**
  * Request body for `POST /orgs.json` and `PATCH /orgs/:orgId.json`: only `name`,

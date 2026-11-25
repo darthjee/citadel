@@ -1,6 +1,6 @@
 import { plainToInstance, Transform } from 'class-transformer';
 import { validate } from 'class-validator';
-import { codePointLength, MaxCodePoints, trimString } from '../string-validators.js';
+import { codePointLength, MaxCodePoints, NO_CONTROL_CHARACTERS, trimString } from '../string-validators.js';
 
 class Sample {
   @Transform(trimString)
@@ -19,6 +19,16 @@ async function constraintsFor(value: unknown): Promise<Record<string, string>> {
 }
 
 describe('string validators', () => {
+  describe('NO_CONTROL_CHARACTERS', () => {
+    it.each(['', 'plain', 'caf\u00e9 \u{1F600}'])('accepts %p', (value) => {
+      expect(NO_CONTROL_CHARACTERS.test(value)).toBe(true);
+    });
+
+    it.each(['a\u0000b', 'tab\there', 'line\nbreak', 'del\u007f', 'c1\u0085'])('rejects %p', (value) => {
+      expect(NO_CONTROL_CHARACTERS.test(value)).toBe(false);
+    });
+  });
+
   describe('trimString', () => {
     it('trims a string', () => {
       expect(plainToInstance(Sample, { value: '  ab \n' }).value).toBe('ab');

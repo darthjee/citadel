@@ -2,6 +2,12 @@ import type { TransformFnParams } from 'class-transformer';
 import { registerDecorator, type ValidationOptions } from 'class-validator';
 
 /**
+ * Matches a string free of any Unicode "Control" (Cc) character: C0 controls (incl. `\u0000`, tab,
+ * newline), DEL and C1. Use with `@Matches(NO_CONTROL_CHARACTERS, ...)` on user-supplied names.
+ */
+export const NO_CONTROL_CHARACTERS = /^[^\p{Cc}]*$/u;
+
+/**
  * `@Transform` callback trimming a string value; any other value (missing, a number, an array, …)
  * is returned unchanged so the type validators (e.g. `@IsString()`) still reject it.
  * @param {TransformFnParams} params - The class-transformer params; only `value` is read.

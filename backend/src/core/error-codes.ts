@@ -20,6 +20,7 @@ export const ErrorCodes = {
   USER_DENIED: 'USER_DENIED',
   USER_NOT_PENDING: 'USER_NOT_PENDING',
   CANNOT_DENY_SELF: 'CANNOT_DENY_SELF',
+  LIST_HAS_ITEMS: 'LIST_HAS_ITEMS',
 } as const;
 
 // Message used for every unexpected (non-HTTP) error — the real message and
