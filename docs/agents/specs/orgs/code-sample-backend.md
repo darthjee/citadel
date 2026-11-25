@@ -28,16 +28,21 @@ and `repo-mock.test-support.ts` were reconciled with citadel's own files (only w
 `no-organization-membership-lookup.ts` (#27) was deleted: `AuthModule` now binds the port to
 `OrganizationService`.
 
+**Status after #31:** the two `bank` reference files were ported, adapted to the live `todo` example
+module, as `backend/src/todo/tests/org-roles.e2e-spec.ts` and
+`backend/src/todo/tests/support/owner-matrix.ts` (rows marked "ported in #31"), and their copies
+deleted, so **2 files remain**: `cache-class.ts` and `cache-policy.interceptor.ts` (#33).
+
 ## What this part covers
 
-| Group | Files | Still in `code_sample/` after #26 | After #27 | After #28 |
-|---|---|---|---|---|
-| Entities | 3 | 3 | 3 | 0 |
-| Service, controller, response, DTO, module | 6 | 6 | 6 | 0 |
-| Core - access control | 27 | 13 | 2 | 2 |
-| Tests - organizations | 12 + 1 directory | 12 + 1 directory | 12 + 1 directory | 0 |
-| Tests - core | 17 + 1 directory | 9 + 1 directory | 0 | 0 |
-| Bank reference for role enforcement | 2 | 2 | 2 | 2 |
+| Group | Files | Still in `code_sample/` after #26 | After #27 | After #28 | After #31 |
+|---|---|---|---|---|---|
+| Entities | 3 | 3 | 3 | 0 | 0 |
+| Service, controller, response, DTO, module | 6 | 6 | 6 | 0 | 0 |
+| Core - access control | 27 | 13 | 2 | 2 | 2 |
+| Tests - organizations | 12 + 1 directory | 12 + 1 directory | 12 + 1 directory | 0 | 0 |
+| Tests - core | 17 + 1 directory | 9 + 1 directory | 0 | 0 | 0 |
+| Bank reference for role enforcement | 2 | 2 | 2 | 2 | 0 |
 
 Copy in the order below. The entities come first because the service imports them; the core layer
 comes before the tests because the tests import it.
@@ -192,15 +197,16 @@ plain `@Body()`, a `public` cache class or no invalidation) while the whole suit
 
 ## 10. Bank reference for role enforcement
 
-`bank` is the only owner-scoped module today, so its tests are the working example of the
-`@MinOrgRole` matrix applied to a real domain.
+In the original, `bank` was the only owner-scoped module, so its tests were the working example of
+the `@MinOrgRole` matrix applied to a real domain. In citadel, the live [Todo module](../../modules/todo.md)
+plays that role, and both files were ported to it.
 
 | File | Covers |
 |---|---|
-| [backend/src/bank/tests/org-roles.e2e-spec.ts](./code_sample/backend/src/bank/tests/org-roles.e2e-spec.ts) | Organization roles applied across an owner-scoped module |
-| [backend/src/bank/tests/support/owner-matrix.ts](./code_sample/backend/src/bank/tests/support/owner-matrix.ts) | The per-route minimum-role matrix as data |
+| [backend/src/todo/tests/org-roles.e2e-spec.ts](../../../../backend/src/todo/tests/org-roles.e2e-spec.ts) | Organization roles applied across an owner-scoped module - **ported in #31** from `bank/tests/org-roles.e2e-spec.ts` (bank-specific blocks dropped) |
+| [backend/src/todo/tests/support/owner-matrix.ts](../../../../backend/src/todo/tests/support/owner-matrix.ts) | The owner-context 404 matrix and role fixtures as data - **ported in #31** from `bank/tests/support/owner-matrix.ts` (accounts → lists, transactions → items) |
 
-These two are optional. Include them only if the replica keeps a second module; they are not
+These two are optional. Include them only if the replica keeps an owner-scoped module; they are not
 required for the organizations routes themselves.
 
 ## Minimum set for a working backend

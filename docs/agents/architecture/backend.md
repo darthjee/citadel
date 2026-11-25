@@ -37,7 +37,7 @@ backend/src/
 │   ├── error-codes.ts         #   category/specific error codes + status → code mapping
 │   ├── locked.exception.ts    #   423 Locked HttpException
 │   ├── strict-validation.pipe.ts #  @StrictBody(): strict per-parameter body validation (unknown fields → 400)
-│   ├── string-validators.ts   #   trimString / MaxCodePoints (length in code points) for DTOs
+│   ├── string-validators.ts   #   trimString / MaxCodePoints / NO_CONTROL_CHARACTERS for DTOs
 │   ├── parse-id.ts            #   parseId / ownerNotFound: strict route id parsing, uniform 404
 │   ├── parse-org-id.ts        #   parseOrgId: strict :orgId parsing (built on parseId)
 │   ├── org-role.ts            #   OrgRole (user < admin < owner), hasMinRole, orgRoleForbidden
@@ -69,22 +69,30 @@ backend/src/
 │   ├── entities/
 │   ├── events/
 │   └── tests/
-└── mail/                      # Mail module — always-on, general-purpose transactional email sender, no HTTP surface
-    ├── mail.module.ts
-    ├── mail.config.ts
-    ├── mail.service.ts
-    ├── mail.method.ts
-    ├── mail.tokens.ts
-    ├── render-template.ts
-    ├── template-registry.ts
-    ├── templates/            # Filesystem email templates — subject.txt / body.txt / body.html per <name>/
+├── mail/                      # Mail module — always-on, general-purpose transactional email sender, no HTTP surface
+│   ├── mail.module.ts
+│   ├── mail.config.ts
+│   ├── mail.service.ts
+│   ├── mail.method.ts
+│   ├── mail.tokens.ts
+│   ├── render-template.ts
+│   ├── template-registry.ts
+│   ├── templates/            # Filesystem email templates — subject.txt / body.txt / body.html per <name>/
+│   └── tests/
+└── todo/                      # Todo module — always-on, owner-scoped example (lists + items) — see docs/agents/modules/todo.md
+    ├── todo.module.ts
+    ├── todo.controller.ts     # @OwnerScopedController('todo'): /todo/... and /orgs/:orgId/todo/...
+    ├── todo.service.ts        # every rule: owner scoping, uniform 404s, 409 LIST_HAS_ITEMS
+    ├── todo-response.ts       # allowlist serializers
+    ├── dto/
+    ├── entities/
     └── tests/
 ```
 
 ## Owned tables
 
 Each module owns its tables under a distinct prefix (see [Modular Pattern](./modular-pattern.md)
-for the rule) — only Auth owns tables today (Mail has no HTTP surface and no entities, see
+for the rule) — Auth and Todo own tables today (Mail has no HTTP surface and no entities, see
 `docs/agents/modules/mail.md`). Column-level detail lives in `docs/agents/modules/auth.md`'s
 "Entities" section, not repeated here.
 
@@ -96,6 +104,8 @@ for the rule) — only Auth owns tables today (Mail has no HTTP surface and no e
 | `auth_account_edit_lockouts` | Auth | `user_id` is a logical FK (no physical FK, no cross-module JOIN), unique — one row per user, upserted in place |
 | `auth_organizations` | Auth | No owner column — ownership lives in the membership role. See [Organizations](../modules/auth/organizations.md) |
 | `auth_organization_memberships` | Auth | `organization_id`/`user_id` are **real** FKs (all three tables are owned by Auth), `ON DELETE RESTRICT`; unique `(organization_id, user_id)` |
+| `todo_lists` | Todo | `user_id`/`organization_id` are logical FKs (cross-module), exactly one set (CHECK). See [Todo](../modules/todo.md) |
+| `todo_items` | Todo | `list_id` is a **real** FK to `todo_lists` (same module), `ON DELETE RESTRICT` |
 
 ## Build
 
@@ -205,6 +215,9 @@ organization role. Full specification: [owner-context.md](../specs/orgs/owner-co
   (`useExisting`, one shared instance) and exports it; `AppModule` imports `AuthModule`, so the
   global guard resolves real roles. See
   [Organizations](../modules/auth/organizations.md#the-port-binding).
+- **Worked example.** The [Todo module](../modules/todo.md) (`src/todo/`) is a live owner-scoped
+  module using every piece above; copy it as the template for a new one, or remove it with its
+  checklist.
 
 ## Error responses
 

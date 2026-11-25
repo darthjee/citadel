@@ -14,7 +14,7 @@ full file before loading it. For a bare link-only table of contents instead, see
   frontend, backend, modular pattern, infra) to keep agent contexts small. Read the linked area
   page relevant to your task instead of loading everything.
 - **[Modules](modules/)** — Per-backend-module documentation (routes, entities, events), one
-  file per module (`modules/auth.md` and `modules/mail.md` today). Read the module's page before
+  file per module (`modules/auth.md`, `modules/mail.md` and `modules/todo.md` today). Read the module's page before
   extending or consuming it.
   - **[Auth](modules/auth.md)** — Citadel Placeholder's always-on login module: `/auth/*.json` routes, the
     `auth_` tables, the JWT/refresh-token flow and session-lookup gate, the admin tool routes, and
@@ -27,9 +27,13 @@ full file before loading it. For a bare link-only table of contents instead, see
     disabled by default (log-and-skip). Templated sends via `sendEmailTemplate`, backed by
     filesystem templates under `mail/templates/` read once at boot. First consumer: the auth
     module's password-recovery email.
+  - **[Todo](modules/todo.md)** — Always-on, owner-scoped example module: todo lists and items owned
+    by a user or an organization, under `/todo/*.json` and `/orgs/:orgId/todo/*.json`. The worked
+    example of the owner-context mechanism (uniform 404/403, `@MinOrgRole`, owner-subtree cache
+    invalidation, 409 `LIST_HAS_ITEMS`), with a removal checklist for derived projects.
 - **[Routes](backend/routes.md)** — Per-endpoint backend route reference, one file per domain
-  under `backend/routes/` ([auth.md](backend/routes/auth.md) and
-  [admin.md](backend/routes/admin.md)), complementing the entity/event-focused `modules/` pages.
+  under `backend/routes/` ([auth.md](backend/routes/auth.md),
+  [admin.md](backend/routes/admin.md) and [todo.md](backend/routes/todo.md)), complementing the entity/event-focused `modules/` pages.
 
 ## Conventions
 

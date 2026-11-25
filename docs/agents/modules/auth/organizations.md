@@ -8,7 +8,8 @@ The full target behaviour (examples, edge cases, roadmap) is specified in
 [`docs/agents/specs/orgs/`](../../specs/orgs/README.md). This page records what is **implemented**.
 The owner-context mechanism used by owner-scoped modules (`OwnerContextGuard`, `@OwnerScoped()`,
 `@MinOrgRole`, `parseOrgId()`) is described in
-[Backend architecture](../../architecture/backend.md#owner-context-organizations).
+[Backend architecture](../../architecture/backend.md#owner-context-organizations). The
+[Todo module](../todo.md) is the worked example of a user-or-organization-owned module built on it.
 
 ## Tables
 

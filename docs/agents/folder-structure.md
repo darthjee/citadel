@@ -32,6 +32,7 @@
 | `src/database/` | TypeORM `DataSource` config + `migrations/` (`<timestamp>-<module>-<action>.ts`) |
 | `src/health/` | `GET /health.json` controller |
 | `src/auth/` | Auth module — see `docs/agents/modules/auth.md` |
+| `src/todo/` | Todo module — the owner-scoped (user-or-organization) example module, meant to be copied or removed — see `docs/agents/modules/todo.md` |
 | `src/mail/` | Mail module — always-on, no routes/entities; filesystem email templates live under `mail/templates/` — see `docs/agents/modules/mail.md` |
 | `dist/` | Compiled build output (gitignored) |
 | `nest-cli.json`, `tsconfig.json`, `tsconfig.build.json`, `jest.config.mjs`, `jest.integration.config.mjs`, `package.json`, `eslint.config.mjs` | Tooling config |
