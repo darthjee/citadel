@@ -1,338 +1,232 @@
 # Organizations - Security
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Roles](./roles.md), [Owner context](./owner-context.md), [Endpoints](./endpoints.md),
-[Caching](./caching.md), [Tests](./tests.md).
-
-## Summary
-
-Six rules carry the security of the organization surface:
-
-1. **Authentication first.** Every organization route requires the JWT gate; only `approved`
-   users are authenticated.
-2. **404 before 403.** The membership check always runs before the role check, so a `403` never
-   reveals that an organization exists.
-3. **Uniform 404.** An unknown, malformed or foreign `:orgId`, and a non-member - a global admin
-   included - all answer the **same** body.
-4. **Uniform 403.** Every role failure answers the same body, naming neither the resource nor the
-   required role.
-5. **No `is_admin` bypass**, anywhere in the organization path.
-6. **No client-supplied owner or role.** Neither comes from the body, and the owner does not come
-   from the URL beyond `:orgId`.
-
-Everything else on this page follows from those six.
+Hub: [Organizations](../orgs.md).
 
 ## Threat model
 
-The surface is small: four routes, one entity, one name field. The realistic threats are
-therefore not exotic - they are the four ways a small multi-tenant surface usually leaks.
+What the organization surface must resist, and the mechanism for each.
 
-| Threat | What the attacker wants | Mitigation |
-|---|---|---|
-| **Horizontal access** | Read or write another user's personal data | Personal routes carry **no user id**: personal always means the JWT user |
-| **Cross-tenant access** | Read an organization's data without belonging to it | Membership checked on **every** request, re-read from the DB, no cache, no bypass |
-| **Enumeration** | Learn which organization ids exist | **Uniform 404** for unknown, malformed, foreign and non-member alike |
-| **Privilege escalation** | Obtain a higher role than the membership grants | Role **never from input**; always from the DB membership; hard-coded `owner` at creation |
+| Threat | Mechanism |
+|---|---|
+| Reading another organization's data | Membership resolution before any data access; non-member gets the uniform `404` |
+| **Enumerating** organizations or records | One uniform `404` for every failure case - existence is never confirmed |
+| Learning that an organization exists via a `403` | The `404` check runs **before** the `403` check |
+| Supplying an owner or a role | `@StrictBody()` rejects unknown fields; the role is never read from input |
+| Escalating via the global admin flag | **No `is_admin` bypass** anywhere in the organization path |
+| Reaching another user's personal data | Personal routes carry no user id - Personal always means the JWT user |
+| Gaining access by guessing an id | `parseOrgId()` rejects malformed ids; membership is checked regardless |
+| Acting after losing membership mid-session | The role and the membership are re-read from the database on every request |
+| Confusing another user's cache entry | `user-scoped` cache class, never `public` |
 
-Two secondary concerns also matter: leaking one caller's response to another through a shared
-cache, and leaking organization names into logs.
+Two threats are **not** covered, by design or by backlog:
 
-## Authentication boundary
+| Not covered | Reason |
+|---|---|
+| Rate-limiting organization creation | Not built (#84). A user may create organizations as fast as the platform accepts requests |
+| Preventing an orphaned `organization_id` in a module | `bank` references `auth_organizations` **logically**, without a foreign key. The database will not object |
 
-- Every organization route is **JWT-protected**: none carries `@Public()`.
-- `JwtGuard`'s session-lookup gate applies. Every gate rejection answers the **same** `401` body,
-  byte-for-byte apart from `timestamp`:
+## The 404 / 403 contract
 
-```json
-{
-  "error": { "code": "UNAUTHORIZED", "message": "Invalid or expired access token" },
-  "statusCode": 401,
-  "timestamp": "<ISO 8601>"
-}
+The core of the domain's security. Two responses, each with one fixed body.
+
+### The uniform 404
+
+Everything that fails to resolve answers the same body:
+
+| Case | Why it is a `404` |
+|---|---|
+| Organization does not exist | Nothing to show |
+| `:orgId` is not numeric | Cannot resolve |
+| `:orgId` is out of the accepted range | Cannot resolve |
+| Organization exists, caller is not a member | No access |
+| Organization exists, caller is a **global admin** but not a member | No `is_admin` bypass |
+
+The body never names the resource. The four cases are **indistinguishable**.
+
+### The uniform 403
+
+Only reachable by a **member** whose role is too low.
+
+- Body is `FORBIDDEN` / `Forbidden`.
+- Names **neither** the resource **nor** the required role.
+- A non-member can never trigger it, because the `404` check comes first.
+
+### The ordering rule
+
+```
+1. Does :orgId resolve and is the caller a member?   no -> 404
+2. Does the role meet the minimum?                   no -> 403
+3. Proceed
 ```
 
-- A missing `access_token` cookie answers `401 Missing access token`.
-- **Only `approved` users are authenticated.** A `pending` user holds a real session but its access
-  tokens are blocked by the gate; a `denied` user cannot log in at all.
-- A `denied` user's memberships and personal data are **kept but unreachable**. Organization data
-  they created belongs to the organization and outlives their access.
-- A database error during the lookup stays a `500` (`INTERNAL_ERROR`) - it is never converted into
-  a `401` or a `404`.
+Reversing the two turns the endpoint into an **existence oracle**: an attacker could distinguish "no
+such organization" from "exists but I am not allowed" by the status code alone.
 
-## 404 before 403
+`PATCH` prepends the body check: **`400` > `404` > `403`**. The `400` depends only on the body, so it
+reveals nothing.
 
-The single most important ordering rule on this surface.
+## No client-supplied owner or role
 
-The pipeline is:
+Three separate mechanisms, all pointing the same way.
 
-1. `JwtGuard` - authenticate, or the gate `401`.
-2. `OwnerContextGuard` - resolve the owner:
-   - missing user, malformed `:orgId`, unknown `:orgId`, not a member → **uniform `404`**;
-   - store `request.ownerContext`;
-   - **only then** read `@MinOrgRole` and compare.
-3. Role too low → **uniform `403`**.
+| Mechanism | What it blocks |
+|---|---|
+| **`@StrictBody()`** | Any body field not in the DTO - `role`, `organizationId`, `userId` all answer `400` |
+| **`OrganizationNameDto`** | The DTO itself declares only `name` |
+| **Service logic** | `create` hard-codes `role: 'owner'`; `organizationId` comes only from the URL after the membership check |
+
+The DTO is a second line of defence, not the only one. Even if a `role` field were added to the DTO
+by mistake, `create` would ignore it.
+
+The role is **never** read from a body, a query parameter or a header. It comes from
+`OrganizationMembership.role` through `findRole`, re-read on every request, with no cache.
+
+## The global admin grants nothing here
+
+| Concept | Scope | Effect on organizations |
+|---|---|---|
+| `owner` / `admin` / `user` | One organization | Access to that organization |
+| Global admin (`is_admin`) | The platform | **None** |
+
+- A global admin who is not a member answers `404`, exactly like anyone else.
+- There is **no `is_admin` bypass** anywhere in the organization path.
+- `AdminGuard` / `@AdminOnly()` protect the admin routes and are unrelated to this surface.
+
+This is the most commonly assumed-in error: "an admin can see everything" is false for organizations.
+
+## Personal data is owner-only
+
+| Rule | Detail |
+|---|---|
+| Visible to | The owning user **only** |
+| Visible to organization members | **Never** - not even members of an organization the owner belongs to |
+| Visible to the global admin | **Never** |
+| Addressable by id | No. Personal routes carry no user id, so another user's data cannot be named |
+
+The structural guarantee: an organization record has **`user_id` `NULL`**, so a personal query
+filtered by `user_id` is **structurally unable** to return it. The separation is enforced by the data
+shape, not by a conditional.
+
+## The user reference means owner, never creator
+
+| Field | Means | Does not mean |
+|---|---|---|
+| `user_id` on a record | The **owner** of the record | Who created it |
+| An organization record's `user_id` | Always `NULL` | The creating member |
 
 Consequences:
 
-- A **`403` is only ever reached by a member.** A non-member cannot obtain one.
-- A non-member therefore cannot distinguish "no such organization" from "organization exists but
-  you are not in it". Both are the same `404`.
-- The ordering is **structural**, not a matter of message choice: the membership resolution and the
-  role comparison are separate steps in that sequence inside the guard.
+- An organization record is **not** owned by the member who created it - it is owned by the
+  organization.
+- Suspending or denying a user does **not** orphan organization data, because that user never owned
+  it.
+- There is **no `created_by`** column anywhere (#95). An authorship trail does not exist.
 
-## Uniform 404
+## Name validation
 
-One body for every resolution failure:
-
-```json
-{
-  "error": { "code": "NOT_FOUND", "message": "Not Found" },
-  "statusCode": 404,
-  "timestamp": "<ISO 8601>"
-}
-```
-
-It covers, indistinguishably:
-
-| Case |
-|---|
-| `:orgId` is not numeric |
-| `:orgId` is numeric but no such organization exists |
-| `:orgId` exists but the caller is not a member |
-| `:orgId` is foreign - e.g. an organization id used on a route of another module's context |
-| The caller is a **global admin** who is not a member |
-
-- **Records are looked up only inside the active owner context**, so the wrong context - an
-  organization record addressed on a personal route, or the reverse - answers the same `404` as an
-  unknown id.
-- The response body is identical in all cases, so no case is inferable from timing-independent
-  content. It does **not** claim to be timing-equalised - see
-  [What is not documented](#what-is-not-documented-in-the-repository).
-
-## Uniform 403
-
-One body for every role failure:
-
-```json
-{
-  "error": { "code": "FORBIDDEN", "message": "Forbidden" },
-  "statusCode": 403,
-  "timestamp": "<ISO 8601>"
-}
-```
-
-- It names **neither the resource nor the required role**.
-- It does **not** say whether the caller is close to the required role.
-- Produced by `orgRoleForbidden()` (`core/org-role.ts`), so every call site emits the same body.
-- Reached for: a route minimum role, a payment-generated transaction, and a rename attempt by a
-  `user`. See [Roles](./roles.md).
-
-## No `is_admin` bypass
-
-Ward's global administrator is a **platform** role, and it grants **nothing** in the organization
-path.
-
-| | Organization role | Global admin |
-|---|---|---|
-| Stored on | `auth_organization_memberships.role` | `auth_users.is_admin` |
-| Scope | One organization | Whole platform |
-| Organization access | Yes, inside that organization | **No** |
-| Non-member probe result | `404` | **`404` - the same one** |
-
-- The role is re-read from the DB on **every** request, with **no** admin override and **no**
-  caching.
-- Being an organization `owner` grants **nothing** outside that organization.
-- **Personal data is owner-only**: never visible to organization members - even of an organization
-  the owner belongs to - nor to the global `is_admin`.
-- Ward's global `is_admin` still covers **accounts only**.
-
-## Three doors for the owner, two of them closed
-
-The owner of a request could arrive from three places. Only one is legitimate.
-
-| Door | Status | Closed by |
-|---|---|---|
-| The **JWT** (the authenticated user) | **Open** - the only legitimate source | - |
-| The **URL** beyond `:orgId` | Closed | Personal routes carry **no user id**; there is no owner segment to tamper with |
-| The **body** | Closed | `@StrictBody()` rejects **any** unknown field, owner fields included |
-
-### No client-supplied owner or role
-
-- **`organizationId`** comes **only from the URL**, after the membership check - never from the
-  body.
-- **`role` is never input.** `create` always sets `owner`; the role used for every check comes
-  **only from the DB membership**, through `findRole`.
-- **Organization bodies accept only `name`.** Any other field - `role`, `organizationId`, `userId`,
-  anything - answers `400 VALIDATION_FAILED` before any service code runs.
-- This is what makes "no client-supplied owner" true at the **transport layer**, not by convention.
-- Handlers take bodies **only through `@StrictBody()`** (`core/strict-validation.pipe.ts`).
-
-## Organization name validation
-
-The only free-text field in the domain, so it is validated explicitly.
+The only free-text field in the domain, and therefore the only input surface worth hardening.
 
 | Rule | Detail |
 |---|---|
-| Trimmed | Leading and trailing whitespace removed **before** validation and storage |
-| Required | Empty or whitespace-only after trimming → rejected |
-| Maximum length | **255 code points** - counted in code points, **not** UTF-16 units |
-| Control characters | **Rejected** - Unicode category `Cc` |
-| Other Unicode | **Allowed** - any other code point is accepted |
-| Uniqueness | **Not unique.** Two organizations may share a name, including two organizations of the same user |
-| Rendering | Always **escaped** - React text, never HTML |
+| Trimmed | Before validation and storage |
+| Non-empty | Whitespace-only is rejected **after** trimming |
+| Maximum | **255 code points**, not UTF-16 units |
+| Control characters | Rejected - Unicode category `Cc` |
+| Other Unicode | Allowed - accents, emoji, CJK |
+| Uniqueness | **None** - duplicate names are legal, including for the same user |
 
-Two notes on those rules:
+### Why code points
 
-- **Code points, not UTF-16 units** matters for characters outside the Basic Multilingual Plane:
-  an emoji or some CJK extension characters occupy two UTF-16 units but one code point. Counting
-  in UTF-16 units would reject legitimate names early and accept others late.
-- **Rejecting control characters** (`Cc`) prevents stored values that break logs, terminals and
-  headers. It does not attempt to restrict scripts or normalize Unicode.
+A character outside the Basic Multilingual Plane - an emoji, some CJK extensions - is **two** UTF-16
+units but **one** code point.
 
-### Names are never logged
+- A validation written against `name.length` measures UTF-16 units and would **reject a valid name**.
+- A test using only ASCII cannot tell the two implementations apart.
 
-- Organization names are **never written to logs**, on any path - create, rename, read.
-- This extends the module's rule that a name is treated as user content, not as diagnostic data.
+## Rendering
 
-## Minimal responses - enumeration by response body
+Organization names are **always rendered as React text**, never as HTML.
 
-The organization serializer returns only:
+- No `dangerouslySetInnerHTML` on any field.
+- A name containing `<script>` is displayed literally, not executed.
+- The backend stores the name as given (trimmed); the escaping is the renderer's responsibility, on
+  both the React side and any future client.
 
-```
-{ id, name, role, created_at, updated_at }
-```
+## The `data-access` review checklist
 
-- **`role` is the caller's role**, not the owner's role.
-- **Member lists are never returned.** There is no endpoint that returns them at all.
-- **Other users' ids are never returned.**
-- `OrganizationMembership` is **never** serialized to the public API.
-- Records of user-or-organization-owned modules never expose owner fields.
+For user-or-organization-owned modules, a reviewer checks ten things.
 
-Consequence: even a successful read of an organization tells the caller nothing about who else
-belongs to it. Today that is trivially true because every organization has exactly one member, but
-the response shape is already the one that stays safe when joining exists.
-
-## Cache as a security boundary
-
-Caching is treated as part of the security contract, not as an optimization detail.
-
-| Rule | Detail |
+| # | Rule |
 |---|---|
-| Controller default | Cache class **`never`** - every route sends `X-Skip-Cache: true` |
-| The two `GET`s | Narrowed to **`user-scoped`** - cached **per caller** |
-| Writes | `never` - plus `Cache-Control: no-store` |
-| An organization id in the URL | Does **not** make a response public |
+| 1 | Every query is filtered through the **`OwnerContext`** resolved by `OwnerContextGuard` (`ownerWhere()` / `ownerSqlWhere()`) |
+| 2 | Personal queries use **only the JWT user** as owner |
+| 3 | Every `/orgs/:orgId/...` route verifies the current user's membership of `:orgId` - mounted with `@OwnerScopedController()` or carrying `@OwnerScoped()` |
+| 4 | **No owner fields** are read from input (the URL beyond `:orgId`, or the body) or written to output |
+| 5 | Unknown id, wrong context and non-member all get a **uniform `404`** with identical bodies |
+| 6 | Every owner-scoped write route declares a minimum role with **`@MinOrgRole`**; organization routes outside that mechanism check the role in the service; record-dependent rules check it in the service and **fail closed** |
+| 7 | The role **never comes from input**: only from the DB membership through `findRole`, re-read on every request |
+| 8 | The non-member **`404` comes before any `403`** |
+| 9 | The **`403` body is uniform** - `FORBIDDEN` / `Forbidden`, no resource or role named |
+| 10 | There is **no `is_admin` bypass** |
 
-Two reasons the last row matters:
+User-owned modules keep the usual per-user checks instead of this list.
 
-- **Personal routes carry no owner in the URL.** A shared cache would key only on the path, so one
-  user's response could be served to another. They **must** be `user-scoped`, with no exception.
-- **Organization routes carry the id in the URL**, which looks cacheable by path - but the response
-  contains the **caller's role**, so it is caller-dependent even with the same id.
+### Where each violation would live
 
-The write-path rule has a documented rationale: Tent's `default_proxy` rule caches any `2xx`
-`*.json` response keyed only by query string, **regardless of HTTP method**. An uncapped response
-could therefore be cached after the first call and served to a different caller. The organization
-routes send `X-Skip-Cache: true` on **every** route, writes included.
-
-See [Caching](./caching.md).
-
-## Concurrency
-
-- **Concurrent renames: last write wins.** There is no optimistic locking, no version column and no
-  `If-Match`.
-- This is a **documented acceptance**, not an oversight: two simultaneous renames leave one of the
-  two names, chosen by write order.
-- No other concurrent write exists: creation always inserts a new row, and there is no delete.
-
-## Known gaps - documented, not built
-
-| Gap | Status |
+| Rule | File that would carry the bug |
 |---|---|
-| `POST /orgs.json` rate limiting | **Not built.** Rate-limiting creation is [#84](https://github.com/darthjee/ward/issues/84). A user may create unlimited organizations today |
-| Closing (deleting) an organization | **Not built** ([#83](https://github.com/darthjee/ward/issues/83)). `ON DELETE RESTRICT` blocks it while memberships exist |
-| Removing a member / leaving | **Not built** ([#82](https://github.com/darthjee/ward/issues/82)) |
-| Audit trail / authorship | **Not built** ([#95](https://github.com/darthjee/ward/issues/95)). There is no `created_by` column |
-| Moving a record between owners | **Not built** ([#93](https://github.com/darthjee/ward/issues/93)) |
-| Sharing a personal record with an organization | **Not built** ([#94](https://github.com/darthjee/ward/issues/94)) |
-| `POST /auth/recover.json` timing equalisation | Not equalised, per `architecture/security.md` |
+| 1, 2 | Any repository query in a domain module; raw SQL in the ledger |
+| 3 | The controller decorator - `@OwnerScopedController()` versus a hand-mounted prefix |
+| 4 | The DTO (`@StrictBody()` and the field list) and the serializer |
+| 5 | The lookup that throws `404` - and whether it is the **same** throw for every case |
+| 6 | `@MinOrgRole` on the method or class, and `OrganizationService` for the service checks |
+| 7 | Any code reading a role from a body, a query param or a header |
+| 8 | The guard's internal ordering - membership before role |
+| 9 | `orgRoleForbidden()` versus a hand-built error |
+| 10 | Anything consulting `User.isAdmin` inside an owner-scoped path |
 
-The creation rate limit is the one with direct security weight today: nothing throttles a user
-creating organizations other than the platform's own request capacity.
+## What structural tests cannot catch
 
-## `data-access` review checklist
+The ten rules above are **semantic**. A test that only inspects decorators passes while every one of
+these is broken:
 
-The rules a reviewer enforces, verbatim in substance, for user-or-organization-owned modules:
+| Missed failure | Why it slips through |
+|---|---|
+| A query missing `ownerWhere()` | The query is well-formed; only the **absence** of a filter is wrong |
+| A role read from the body | `@StrictBody()` is present; the DTO merely includes a field it should not |
+| A `403` thrown before the `404` | Both are thrown; only their **order** is wrong |
+| A `404` body that differs by case | Each throw is uniform; the **set** of throws is not |
+| A service receiving a raw `organizationId` | Perfectly valid TypeScript |
+| A cached role | A performance choice, not a decorator violation |
 
-1. Every query is filtered through the **`OwnerContext`** resolved by `OwnerContextGuard`
-   (`ownerWhere()` / `ownerSqlWhere()`).
-2. Personal queries use **only the JWT user** as owner.
-3. Every `/orgs/:orgId/...` route verifies the current user's membership of `:orgId` - it is
-   mounted with `@OwnerScopedController()` or carries `@OwnerScoped()`.
-4. **No owner fields** are read from input (the URL beyond `:orgId`, or the body) or written to
-   output.
-5. Unknown id, wrong context and non-member all get a **uniform `404`** with identical bodies, with
-   no disclosure that a record or organization exists.
-6. Every owner-scoped write route declares a minimum role with **`@MinOrgRole`**; organization
-   routes outside that mechanism check the role in the service (as `OrganizationService.rename`
-   does); record-dependent rules check it in the service and **fail closed**.
-7. The role **never comes from input**: only from the DB membership through `findRole`, re-read on
-   every request.
-8. The non-member **`404` comes before any `403`**.
-9. The **`403` body is uniform** - `FORBIDDEN` / `Forbidden`, no resource or role named.
-10. There is **no `is_admin` bypass**.
+That gap is why the review checklist exists alongside the automated coverage spec. See
+[Tests](./tests.md).
 
-User-owned modules keep the usual per-user checks instead.
+## Boundaries worth stating
 
-See [Tests](./tests.md) for the automated side of this checklist.
-
-## Failure answers, consolidated
-
-| Situation | Where caught | Answer |
-|---|---|---|
-| No `access_token` | `JwtGuard` | `401 Missing access token` |
-| Bad signature, expired token, malformed claims, revoked/expired session, session of another user | `JwtGuard` gate | uniform `401` |
-| `pending` or `denied` user | `JwtGuard` gate | uniform `401` |
-| Missing user, malformed `:orgId`, unknown `:orgId`, non-member, non-member global admin | `OwnerContextGuard` / membership lookup | uniform `404` |
-| Record addressed in the **wrong context** | owner-scoped lookup | uniform `404` |
-| Member with too low a role | `@MinOrgRole` or the service | uniform `403` |
-| Unknown body field, `role` and owner fields included | `@StrictBody()` / DTO | `400 VALIDATION_FAILED` |
-| `name` missing, empty after trim, over 255 code points, or with a `Cc` character | `OrganizationNameDto` | `400 VALIDATION_FAILED` |
-| Database error during the session lookup | - | `500 INTERNAL_ERROR` |
-
-## Design properties worth preserving
-
-These are the invariants a future change is most likely to break silently.
-
-- **The guard is global but inert.** It runs on every route and acts only where `@OwnerScoped()`
-  exists. Replacing it with per-route guards reintroduces the "one forgotten `if`" failure.
-- **`:orgId` is parsed as a raw string.** Any numeric coercion lets `1e3` become `1000` and resolve
-  a different organization than the one in the path.
-- **The role is never cached.** A cached role would keep a revoked member working until expiry.
-- **The body is closed by a pipe, not by a whitelist convention.** `@StrictBody()` rejects unknown
-  fields; a plain `@Body()` would silently accept them.
-- **The serializer is minimal by design.** Adding a member list to the organization response would
-  turn four routes into an enumeration surface.
-- **Names are not logged.** Logging them would move user content into the observability path.
+| Boundary | Behaviour |
+|---|---|
+| Unknown vs. foreign organization | Identical `404`. No distinction is observable |
+| Non-member vs. non-existent | Identical `404` |
+| Member with low role vs. non-member | Different - `403` vs `404` - but the `403` is only for members |
+| Denied user with an `owner` membership | Cannot log in. The membership and the organization's data remain, unreachable |
+| Deleted user | Blocked by `ON DELETE RESTRICT` while any membership references them |
+| Organization with a suspected orphan `bank` row | Nothing in the database prevents it |
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages state every rule, ordering and response body on this page. They do **not**
-contain:
+The project documentation states the threat model, the 404/403 contract, the ordering rule, the
+no-bypass rule, the `name` rules and the ten review criteria. It does **not** contain:
 
-- the source of `@StrictBody()` (`core/strict-validation.pipe.ts`) or `organization-name.dto.ts`:
-  the validation decorators, the error payload shape, and whether the trim happens in the DTO or
-  before it;
-- the exact `400 VALIDATION_FAILED` body - the docs name the code, not the JSON shape;
-- whether the `401` / `404` / `403` bodies are built by a shared filter, a shared exception class,
-  or per-site;
-- the implementation of `orgRoleForbidden()`;
-- whether the `404` path is `NotFoundException` or a custom class;
-- any timing-equalisation between "unknown organization" and "not a member" - the bodies are
-  identical, and the docs assert nothing about response time;
-- the `X-Cache-Allow` value sent on the two `GET`s;
-- whether any of this is covered by an authorization-specific test suite beyond the coverage spec
-  referenced in [Tests](./tests.md).
+- a **dedicated security page** in the organizations set - the content above is assembled from the
+  module page, the endpoints page and the review checklist;
+- any rate limiting on `POST /orgs.json` - it is documented as **not built** (#84);
+- any CSRF discussion specific to the organization routes, beyond the `sameSite: 'strict'` cookie;
+- whether the `400` response carries validation details that could leak schema information;
+- any logging, alerting or audit trail for repeated `404`s or `403`s - there is no audit table;
+- whether a name containing HTML is escaped on the backend or only on render;
+- any penetration-test results or threat-model document beyond the rules listed here.
 
-Read `backend/src/core/` and `backend/src/auth/dto/` for the authoritative version. Nothing on this
-page is inferred beyond what the docs state.
+Read `docs/agents/modules/auth/organizations.md` and
+`docs/agents/agents/data-access.md` - the latter is the reviewer definition the checklist comes from -
+for the authoritative version. Nothing on this page is inferred beyond what the docs state.
