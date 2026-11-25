@@ -75,3 +75,32 @@ export function validateOrganizationName(name, field = 'name') {
 
   return {};
 }
+
+/** Maximum length of a bounded text field (e.g. a todo list name), in code points. */
+export const MAX_TEXT_LENGTH = 255;
+
+/**
+ * Check that a text field is present and not too long, once trimmed.
+ *
+ * @description Mirrors the backend's rule for short required strings (todo list names and item
+ * descriptions). Returns an error map so the result can be spread into a controller's errors;
+ * length is counted in code points.
+ * @param {string} value - The value to check.
+ * @param {string} field - The field name the error is keyed under.
+ * @param {string} label - The field label used in the messages (e.g. `Name`).
+ * @returns {object} `{ [field]: message }` when blank or longer than {@link MAX_TEXT_LENGTH}
+ *   code points, otherwise `{}`.
+ */
+export function validateRequiredText(value, field, label) {
+  const trimmed = (value ?? '').trim();
+
+  if (trimmed === '') {
+    return { [field]: `${label} is required` };
+  }
+
+  if ([...trimmed].length > MAX_TEXT_LENGTH) {
+    return { [field]: `${label} must be at most ${MAX_TEXT_LENGTH} characters` };
+  }
+
+  return {};
+}
