@@ -1,267 +1,303 @@
 # Organizations - Edge Cases
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [General](./general.md), [Security](./security.md), [Frontend](./frontend.md),
-[Roadmap](./roadmap.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-The documented edge cases, and what each one does:
+The situations that are easy to get wrong, grouped by where they surface.
 
-| Case | Outcome |
+| Area | Edge cases |
 |---|---|
-| **Zero organizations** | The **normal state**. The user works in Personal |
-| **Pending or denied user** | Cannot log in, so reaches nothing. Memberships and personal data are kept but unreachable |
-| **Many organizations** | **No cap** per user. Rate-limiting creation is not built (#84) |
-| **Stale remembered context** | The frontend **drops** the id and falls back to Personal |
-| **Role changed mid-session** | Applies **immediately** backend-side; the UI catches up on the next `403` |
-| **Concurrent renames** | **Last write wins.** No optimistic locking |
-| **Malformed `:orgId`** | Uniform `404` backend-side; `not-found` view client-side with **no request** |
-| **Organization not in the org list** | `role` is `null`, and role-gated UI **renders nothing** |
-| **Zero members other than the owner** | The only state that exists today, by design |
-
-Each case is expanded below.
+| Zero organizations | New user, empty list, the normal state |
+| User status | Pending, denied, approved |
+| Membership loss mid-session | Revoked membership, demoted role |
+| Context | Stale remembered id, malformed id, foreign id |
+| Writes | Duplicate names, concurrent renames |
+| Deletion | Nothing is deletable today |
 
 ## Zero organizations
 
-**This is the normal state, not an edge case in the negative sense.**
+A user who has never created an organization.
 
-- Registration creates **no** organization and **no** membership. `POST /auth/register.json`
-  touches only `auth_users`.
-- A brand-new user therefore belongs to zero organizations, and that is expected.
-- `GET /orgs.json` answers **`200`** with an **empty array** - not a `404`, not `null`.
-- The UI's context switcher shows only **Personal** and **Create organization**.
-- Everything the user does happens in the **personal context**, where they hold `owner` rights over
-  their own data.
+| Surface | Behaviour |
+|---|---|
+| `GET /orgs.json` | `200` with `[]` - **not** `404`, not `null` |
+| Context switcher | Shows **Personal** plus **+ Create organization**. No empty-state error |
+| Active context | Personal. It is the only context available |
+| `ownerRole(ctx)` in Personal | `owner` - so `can()` needs no personal branch |
+| `entryResolution` | A remembered organization id cannot match, so it resolves to Personal |
 
-The first organization spec (#28) would have auto-created an organization at registration. #40
-reversed that **before it was built**, which is why zero organizations is deliberate rather than an
-oversight.
+**This is the normal state, not an error state.** Registration creates no organization; an earlier
+spec proposed auto-creating one and was reversed before being built (#40).
 
-## Pending or denied user
+Consequence for tests and fixtures: a user with zero organizations is the **default** setup, not a
+degenerate one. Any test that assumes at least one organization is testing an artificial state.
 
-Two distinct states with different mechanics.
+## `GET /orgs.json` when empty
 
-### Pending
+`[]` with `200`.
 
-- Registration issues a **real session** - identical to an approved login - that the gate **blocks**
-  until approval.
-- `status.json` answers `{ "loggedIn": false, "isAdmin": false, "status": "pending" }` and the
-  session is **kept**, not destroyed.
-- Every access token is refused by the gate: the organization routes answer the uniform **`401`**.
-- The UI **hides the context switcher** while logged out or pending, and an approval gate stands in
-  front of the pages.
+The frontend treats an empty array as a valid list:
 
-### Denied
+- The switcher renders only Personal and the create entry.
+- No toast, no error banner.
+- `OrgListController` caches the empty result like any other.
 
-- Cannot log in at all: a correct password on a `denied` user answers **`403 USER_DENIED`** with no
-  session, no cookie and no refresh token.
-- An existing session's tokens are refused by the gate, so organization routes answer **`401`**.
-- **Nothing is deleted.** A denied user's **memberships and personal data are kept but
-  unreachable**.
-- **Organization data they created belongs to the organization**, not to them, and outlives their
-  access. The record's `user_id` was `NULL` from the start - the owner is the organization.
+An error surface here would be wrong: the request succeeded and returned an accurate answer.
 
-This is the case where the "owner as owner, never creator" rule pays off: suspending a user does
-not orphan organization records, because they were never owned by that user.
+## User status
 
-### The gap this exposes
+Three states, all enforced at the `JwtGuard` gate.
 
-A denied user's memberships **still exist**, and nothing removes them. Since the only organization
-action is create and rename, and removing a member is not built (#82), an organization created by a
-denied user keeps that `owner` membership indefinitely. The organization remains reachable only by
-no one, because no other member was ever possible.
+| Status | Login | Any organization route | Answer |
+|---|---|---|---|
+| `approved` | Yes | Reaches the organization logic | `200`, `403` or `404` as appropriate |
+| `pending` | No | Blocked before it | `401 Invalid or expired access token` |
+| `denied` | No | Blocked before it | `401 Invalid or expired access token` |
 
-## Many organizations
+- A `pending` or `denied` user **never** reaches a `403`. The refusal happens at authentication, not
+  at authorization.
+- Both statuses answer the **same** `401` body - the caller cannot distinguish "awaiting approval"
+  from "denied".
+- A user who is demoted from approved to denied while holding an `owner` membership keeps the
+  membership row. The organization's data remains, unreachable by them.
 
-- **No cap per user.** Nothing limits how many organizations a single account may create.
-- Rate-limiting `POST /orgs.json` is documented target behaviour, **not built** (#84).
-- Consequence today: a user may create organizations as fast as the platform accepts requests.
-  This is the one documented gap with direct security weight - see [Security](./security.md).
-- `GET /orgs.json` returns all of them, ordered by id, with **no pagination**. A user with many
-  organizations receives a proportionally large array, and the context switcher renders every one.
+**Order matters**: `401` before any `404` or `403`. A suspended user learns nothing about which
+organizations exist.
+
+## Membership loss mid-session
+
+A user loses their membership while holding a live session.
+
+| Layer | Behaviour |
+|---|---|
+| Backend | The next request answers the uniform `404`. The role and the membership are re-read from the DB on **every** request |
+| Cached `GET /orgs.json` | May still name the organization until invalidated |
+| Frontend | The org list may still list it; clicking it produces `404`, which resolves to `not-found` |
+| Remembered context | The stale id is dropped when the id is not in the loaded list |
+
+There is no push and no session invalidation on membership loss. The recovery is reactive: the next
+request corrects the state.
+
+Consequence: **the UI can show an organization the user no longer belongs to.** That is UX lag, not a
+data leak - every read is refused by the backend.
+
+## Role demotion mid-session
+
+The most common confusing case, because the UI and the API disagree for a moment.
+
+| Layer | Behaviour |
+|---|---|
+| Backend | Immediate. The next request already sees the new role |
+| Frontend | Holds the old role from `GET /orgs.json` until a `403` triggers a refresh |
+| Visible result | Controls still shown, action refused |
+
+The sequence:
+
+1. User holds `admin`. The UI shows Rename.
+2. The role drops to `user` in the database.
+3. User clicks Rename. Backend answers **`403`**.
+4. `ApiClient` emits `permission:forbidden` **before** throwing.
+5. `forbiddenRefreshEffect` refetches `GET /orgs.json` - once per burst, not per request.
+6. The role updates, the Rename link disappears.
+
+The `403` **is** the refresh signal. There is no polling and no push.
+
+### A burst of `403`s
+
+A page with five forbidden requests must not produce five refetches. `forbiddenRefreshEffect` holds
+an in-flight flag and collapses the burst into **one** refresh.
+
+Without it, the org-list endpoint receives N requests for one role change, and each of the N `403`s
+triggers another.
 
 ## Stale remembered context
 
-The frontend remembers the last used context per user under **`ward.context.<userId>`**, storing
-the **organization id only**.
+`ContextStorage` remembers the last organization under `ward.context.<userId>`, but the stored value
+can go stale.
 
-- It is applied **only at the entry point** (`''` or `#/`), and **only after** the org list loads.
-- It is applied **only if the id is in that list** - otherwise it is **forgotten**.
-- A stale id - an organization the user no longer belongs to - therefore **never** produces a
-  request to a foreign organization. The frontend drops it silently and falls back to Personal.
-- A backend `404` or a malformed id on an explicit URL renders the generic `NotFound` view, which
-  **also forgets that id if it was remembered**.
+| Cause | Result |
+|---|---|
+| The organization was never real (hand-edited storage) | Dropped by `entryResolution` - not in the loaded list |
+| The membership was lost | Dropped - not in the loaded list |
+| The user switched accounts | Different key, so no collision |
+| `localStorage` unavailable or throwing | `try` / `catch` falls back to Personal |
 
-Three details worth knowing:
+Rules that make this safe:
 
-1. **It is not cleared on logout**, so logging back in returns the user to the last organization,
-   provided they still belong to it.
-2. **Deep links bypass it.** A link to `#/orgs/7/bank/accounts` goes to organization 7 regardless
-   of what was remembered.
-3. **Storage failures mean Personal.** Every access to local storage is wrapped in `try` / `catch`;
-   unavailable storage is treated as "no remembered context".
+- The value is the **organization id only** - no name, no role, no cached body.
+- `entryResolution` applies the remembered context **only** at `''` or `#/` - an explicit URL wins.
+- A remembered id not present in the loaded list is **forgotten**, not attempted.
+- The value is **not cleared on logout**. A stale id is handled by the rules above instead.
 
-## Role changed mid-session
+## Malformed `:orgId`
 
-Two halves, one on each side of the wire.
+The same input, on both sides of the wire.
 
-### Backend: immediate
+| Input | Backend | Frontend |
+|---|---|---|
+| `7` | Accepted | Accepted |
+| `0` | `404` | `not-found`, **no request** |
+| `007` | `404` | `not-found`, no request |
+| `abc` | `404` | `not-found`, no request |
+| `1e3` | `404` - not coerced | `not-found`, no request |
+| `1.5` | `404` | `not-found`, no request |
+| `2147483648` | `404` | `not-found`, no request |
+| `2147483647` | Accepted | Accepted |
 
-- The role is **re-read from the DB on every request**, with no cache and no `is_admin` bypass.
-- A role changed in the database therefore applies on the **very next request**, including a
-  demotion that must now be refused.
-- There is no session-level role snapshot to invalidate.
+Two independent guards, same result:
 
-### Frontend: on the next `403`
+- **Backend**: `parseOrgId()` receives the **raw string**. A number-typed parser would have already
+  turned `1e3` into `1000`.
+- **Frontend**: `^[1-9][0-9]*$` plus the `2147483647` bound resolves to `not-found` **without issuing
+  a request**.
 
-- The UI holds a copy of the role, taken from `GET /orgs.json`.
-- `ApiClient` emits **`permission:forbidden`** on **any** `403`, **before** throwing the `ApiError`.
-- The provider mounts **`forbiddenRefreshEffect`** with `refreshOrgs`, and an **in-flight flag
-  collapses a burst of `403`s into one refresh**.
-- Result: the UI catches up on the **next failed action**, not on the next page load and not on a
-  timer.
+The frontend guard is an optimisation and a UX improvement, not the security boundary. The backend
+guard is what protects the data - the frontend check could be bypassed entirely with a direct call.
 
-The visible sequence for a demoted admin is therefore: their controls are still shown, they click
-one, the backend answers `403`, the UI refreshes the role, and the controls disappear.
+## Foreign or non-member organization
 
-**Until that `403` happens, the UI may still offer actions the backend will refuse.** That is not a
-security hole - the backend is the authority - but it is a real UX sequence worth knowing when
-testing a demotion.
+| Case | Answer |
+|---|---|
+| Organization exists, caller is not a member | Uniform `404` |
+| Organization exists, caller is a **global admin** but not a member | Uniform `404` - identical body |
+| Organization was deleted | Uniform `404` |
+| Organization id belongs to a different installation | Uniform `404` |
 
-### A role changed while the user is on a page
+All four are indistinguishable from the response. A global admin cannot tell the difference between
+"no such organization" and "exists, not a member".
 
-- Since pages are **keyed by context**, switching organizations remounts them, so no page keeps
-  another context's state.
-- A role change **within** the same organization does not remount anything: only the `403` path
-  refreshes it.
+## Duplicate names
+
+| Situation | Result |
+|---|---|
+| Same user creates two organizations named "Acme" | **Two organizations.** No dedupe |
+| Two different users create "Acme" | Two organizations |
+| Rename to a name another organization already has | Allowed |
+
+`name` is **not unique** and has no index. There is no lookup by name anywhere in the API, so
+duplicates are not a correctness problem - the routes address by `id`.
+
+Consequence for a client: a name is a label, not an identifier. Two entries in the switcher may read
+identically.
 
 ## Concurrent renames
 
-- **Last write wins.** There is no optimistic locking, no version column and no `If-Match`.
-- Two simultaneous `PATCH /orgs/:orgId.json` calls leave **one** of the two names, chosen by write
-  order.
-- This is a **documented acceptance**, not an oversight.
-- No other concurrent write exists to race: creation inserts a new row, and there is no delete, no
-  role change and no membership change.
+Two `PATCH` calls on the same organization.
 
-## Malformed or unknown `:orgId`
-
-The two layers behave differently, and deliberately so.
-
-### Backend
-
-- `:orgId` is parsed by **`parseOrgId()`** as a **raw string**. `1e3` never becomes `1000`.
-- **Every** failure - non-numeric, unknown, foreign, or not a member - answers the same uniform
-  **`404`**.
-- A global admin who is not a member gets that same `404`.
-
-### Frontend
-
-- The resolver mirrors the strictness: a segment outside **`^[1-9][0-9]*$`**, or above
-  **`2147483647`**, resolves to **`not-found` with no request issued at all**.
-- So a typo in the address bar produces the `not-found` view **without** a `404` round trip.
-- A **well-formed but unknown** id does reach the backend, gets the `404`, and also renders
-  `not-found`.
-
-The difference matters when debugging: the network tab tells you which case you hit.
-
-## Organization not in the org list
-
-A UI state the docs call out explicitly:
-
-- `role` comes from the active organization's entry in `GET /orgs.json`.
-- While the list is **loading**, or when the organization **is not listed**, `role` is **`null`**.
-- `DEFAULT_OWNER_CONTEXT` has **`role: null`**.
-- `can()` **fails closed**: `null` or an unknown role answers **`false`**.
-- The gate **renders nothing while `role` is `null`**, so the user never sees an action they might
-  not be allowed to take.
-
-This is the correct failure direction: an unresolved role produces an empty UI, not an optimistic
-one.
-
-## Boundary: caller with no membership at all
-
-If a user reaches an organization route without belonging to the organization:
-
-- **Backend**: uniform `404`. Indistinguishable from a nonexistent organization.
-- **Frontend**: the `not-found` view, offering "Go to Personal".
-- **No partial access.** There is no read-only mode for non-members and no "request access" flow -
-  joining is not built (#82).
-
-## Boundary: personal data and organization membership
-
-A user who owns personal records **and** belongs to organizations is the documented case where the
-boundaries must hold:
-
-- **Personal data is owner-only.** It is never visible to organization members - not even members of
-  an organization the owner belongs to.
-- It is never visible to the global `is_admin`.
-- Organization data is visible to every member of that organization, regardless of who created it.
-- The two sets are **disjoint**: a personal query can never return an organization record, and an
-  organization query can never return a personal one. An organization record has `user_id` `NULL`,
-  which is what makes the personal query structurally unable to match it.
-
-## Boundary: organization with a single member
-
-Every organization has exactly **one** member today - its owner - because **there is no way to
-join**.
-
-What that implies:
-
-- Member management has never been exercised. Invites, role changes, leave and transfer are all
-  **unbuilt** (#82).
-- The minimal response shape has never had to hide a real member list, because there is none to
-  hide. The shape was still designed for the future state - see [Response](./response.md).
-- The `owner` role's exclusivity has never been tested against a real second member. The only
-  `owner` row is the one written by `create`.
-
-## Boundary: organization data outliving the creator
-
-- Organization data **belongs to the organization** and **outlives its creator's membership or
-  account status**.
-- Consequence: closing an organization (#83) is not a simple delete. Memberships reference it with
-  `ON DELETE RESTRICT`, so they must be resolved first.
-- A user who created an organization and is later denied keeps a membership they cannot use, and
-  the organization keeps data no reachable member can see.
-
-## Cases that do not exist
-
-Listed because their absence is a decision, not an omission.
-
-| Case | Status |
+| Aspect | Behaviour |
 |---|---|
-| Joining an organization | **Not built** (#82) |
-| Listing the members of an organization | **No endpoint exists.** Not even the owner can enumerate members |
-| Leaving an organization | **Not built** (#82) |
-| Transferring ownership | **Not built** (#82) |
-| Closing / deleting an organization | **Not built** (#83). `ON DELETE RESTRICT` blocks it |
-| Changing a member's role | **Not built** (#82) |
-| Inviting a user by email | **Not built** (#82) |
-| Rate-limiting creation | **Not built** (#84) |
-| Moving a record between owners | **Not built** (#93) |
-| Sharing a personal record with an organization | **Not built** (#94) |
-| Authorship / audit trail | **Not built** (#95). There is no `created_by` column |
-| An owner-only action | **None exists.** Every action an owner can take, an `admin` can too |
+| Locking | None |
+| Version column | None |
+| `If-Match` / ETag | None |
+| Outcome | **Last write wins** |
+
+Both callers receive `200`. The final name is whichever write committed last; the other caller's
+response is already stale when it arrives.
+
+This is documented as an accepted limitation, not a bug.
+
+## Concurrent creation
+
+Two `POST` calls by the same user, same name.
+
+Both succeed. Two organizations exist. Neither is a duplicate in the schema sense - `name` has no
+unique constraint.
+
+## Nothing is deletable
+
+The case that surprises most when exploring the domain.
+
+| Attempt | Result |
+|---|---|
+| Delete an organization row | **Blocked** by `ON DELETE RESTRICT` while a membership references it |
+| Delete a user row | **Blocked** while they belong to any organization |
+| Delete a membership | No endpoint, no service method |
+| Close an organization | Not built (#83) |
+
+Every organization always has at least its `owner` membership, and removing memberships is not
+built. So **no organization row is deletable today, at any layer**.
+
+`RESTRICT` protects against deleting **rows**, not against dropping the table - a migration rollback
+works normally.
+
+## Orphaned `organization_id` in a module
+
+A `bank` record may hold an `organization_id` that no longer exists.
+
+| Layer | Behaviour |
+|---|---|
+| Foreign key | **None.** `bank` references `auth_organizations` logically |
+| Database | Will not object, will not cascade, will not warn |
+| Application | Must prevent it - which is why closing an organization (#83) is not a simple delete |
+
+This is the consequence of the module separation: the modules are deliberately independent, so the
+database cannot enforce the reference.
+
+## Personal context edge cases
+
+| Case | Behaviour |
+|---|---|
+| Personal request with no organization in the URL | `ownerRole(ctx)` returns `owner` |
+| Personal route with a malformed `:orgId` in a query string | Ignored - personal routes take no owner from the URL |
+| Switching from an organization back to Personal | `landingFor` returns the module's personal path |
+| A personal record with `user_id` set to another user | Impossible to address - personal routes carry no user id |
+
+The last row is structural: there is no route that accepts a user id, so another user's personal data
+cannot be named, let alone returned.
+
+## Session expiry mid-form
+
+| Moment | Behaviour |
+|---|---|
+| Token expires while a rename form is open | The `PATCH` answers `401` |
+| Frontend | `isSessionExpired` detects it and routes to the login flow |
+| Unsaved input | Lost - there is no draft persistence |
+
+## Two tabs, two contexts
+
+The context lives in the **URL**, so two tabs can work on different contexts at the same time.
+
+| Situation | Behaviour |
+|---|---|
+| Tab A in Personal, Tab B in organization 1 | Both work; neither is overwritten |
+| Tab A creates an organization | Tab B's org list is stale until it refreshes |
+| Tab A renames in organization 1 | Tab B, if on the same organization, shows the old name until reload |
+
+`ContextStorage` is per user and stores **one** id - the last one used. It does not coordinate
+between tabs beyond that.
+
+## Empty and boundary values for `name`
+
+| Value | Result |
+|---|---|
+| `""` | `400` |
+| `"   "` | `400` - rejected after trimming |
+| `"  Acme  "` | Accepted, stored as `Acme` |
+| 255 ASCII characters | Accepted |
+| 256 ASCII characters | `400` |
+| 255 astral characters (an emoji) | **Accepted** - 255 code points, 510 UTF-16 units |
+| `"Acme\u0007"` | `400` - control character |
+| `"Organização Ágape"` | Accepted |
+| `"<script>alert(1)</script>"` | Accepted and stored; rendered literally, not executed |
+
+The astral-character row is the one that separates a correct validation from a naive one. A check
+written as `name.length <= 255` measures UTF-16 units and would **reject** a valid name.
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages state the edge cases above, with the outcomes described. They do **not**
+The project documentation states the empty-list behaviour, the status gate, the stale-context rules,
+the malformed-id rules, the last-write-wins outcome and the deletion blockers. It does **not**
 contain:
 
-- the behaviour when a **denied** user still holds the `owner` membership of an organization and
-  the organization's data - the docs state data outlives access, and do not describe any cleanup;
-- whether an organization whose sole owner is denied is intended to be recoverable, and by whom;
-- the behaviour of `GET /orgs.json` for a user with a very large number of organizations - no
-  pagination is documented, but no limit is either;
-- what happens to a **remembered context** when the same id is later reused by a different
-  organization - the storage holds an id, and no reuse policy is documented;
-- whether two concurrent `PATCH` calls can produce a name that is neither of the two submitted -
-  only "last write wins" is stated;
-- the exact UI behaviour when `refreshOrgs` fails during a `403`-triggered refresh;
-- any migration path for the "#28 auto-creates an organization at registration" behaviour, which
-  was reversed before being built.
+- the behaviour when `localStorage` contains a value for a **different** user id on a shared machine;
+- whether `ContextStorage` is cleared by anything other than an explicit switch;
+- the exact refresh window used by `forbiddenRefreshEffect` to collapse a burst;
+- whether the org list refreshes on login, on window focus, or on both;
+- the behaviour of a `PATCH` whose body equals the current name - whether `updated_at` still moves;
+- any timeout or retry on a `429` or a network failure;
+- what the UI renders when `GET /orgs.json` itself fails with a `500`.
 
-Read `docs/agents/modules/auth/organizations.md` and
-`docs/agents/architecture/frontend.md` for the authoritative version. Nothing on this page is
-inferred beyond what the docs state.
+Read `frontend/assets/js/utils/context/`, `frontend/assets/js/components/common/ownerContext/` and
+the organization controller specs for the authoritative version. Nothing on this page is inferred
+beyond what the docs state.
