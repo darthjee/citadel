@@ -28,6 +28,10 @@ frontend/assets/js/
       ownerContext/           # OwnerContextProvider.jsx, hooks/ (useOwnerContext, useCan),
                               #   controllers/ (OrgListController, forbiddenRefreshEffect)
       header/                 # Header.jsx + controller/helper/hook — Login/Logout nav
+        contextSwitcher/      # ContextSwitcher.jsx + controllers/, helpers/ — Personal / orgs /
+                              #   + Create organization dropdown, mounted first by HeaderHelper
+      notFound/NotFound.jsx   # generic Not-found view; forgets a stale remembered org id
+      PermissionDenied.jsx    # PERMISSION_DENIED_MESSAGE + the permission-denied view
       awaitingApproval/       # AwaitingApprovalGate.jsx, AwaitingApproval.jsx + controllers/,
                               #   helpers/, hooks/useWindowFocusRecheck.js — pending-account view
       loginModal/             # LoginModal.jsx — route-independent, opened via LoginModalEvents
@@ -44,6 +48,9 @@ frontend/assets/js/
       admin/pages/             # AdminUsers.jsx (search, status filter, approve/deny via
                                #   users/ApproveUserButton.jsx, users/DenyUserButton.jsx),
                                #   AdminUserEdit.jsx
+      organizations/pages/     # OrganizationNew, OrganizationOverview, OrganizationEdit +
+                               #   controllers/ (shared OrganizationFormController, loader,
+                               #   navigation) and helpers/
   client/                      # AccountsClient, AdminClient, ApiClient, ApiError,
                                 #   AuthSession, AuthEvents, AuthStatus, LoginModalEvents,
                                 #   OrganizationsClient, PermissionEvents,
@@ -65,9 +72,11 @@ frontend/specs/                # mirrors assets/js/ above, one spec per source f
 Routing is hash-based: `HashRouteResolver.resolve()` returns `{ page, context }`, where `context`
 is the owner context (`{ kind: 'personal' }` or `{ kind: 'organization', orgId }`) read from an
 optional `/orgs/<id>` prefix; the URL is the only source of the active context.
-`AppHelper.render(page)` maps the page key to a component (unknown keys, including `not-found`,
-fall back to home). The route tables, the malformed-id guard, the remembered context, `can()` and
-the `OwnerContextProvider` are described in
+`AppHelper.render(route)` maps the page key to a component (unknown keys fall back to home; the
+`not-found` key renders `NotFound`) and wraps it in a `Fragment` keyed by the owner context
+(`personal` or `org-<id>`), so switching contexts remounts the page with fresh state. The route
+tables, the organization pages, the context switcher, the malformed-id guard, the remembered
+context, `can()` and the `OwnerContextProvider` are described in
 [Organizations → Frontend](../modules/auth/organizations.md#frontend).
 
 New application views should follow the shape already used above (`components/`, `client/`,
