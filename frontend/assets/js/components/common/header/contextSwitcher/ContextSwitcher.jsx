@@ -17,7 +17,7 @@ function currentHash() {
  * Header dropdown switching between Personal and the user's organizations. Hidden while logged
  * out or pending approval.
  *
- * @description A switch made from a registered section (e.g. a bank accounts page) lands on that
+ * @description A switch made from a registered section (e.g. a module's list or detail page) lands on that
  * section's list in the picked context; anywhere else it lands on the picked context's landing.
  * The item `href` uses the same target as the click.
  * @param {object} props - Component props.

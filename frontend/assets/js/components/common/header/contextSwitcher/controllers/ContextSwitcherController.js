@@ -35,9 +35,9 @@ export default class ContextSwitcherController {
   /**
    * Switch to a context: store it as the user's last context **before** navigating.
    *
-   * @description Without an organization variant of the current page (every page so far), the
-   * target is the context's landing. `switchTarget` is the hook for module pages (#49 onwards)
-   * that keep the user on the same page in the other context.
+   * @description Without an organization variant of the current page, the target is the
+   * context's landing. `switchTarget` is the hook for owner-scoped module pages that keep the
+   * user on the same section in the other context.
    * @param {object} context - The picked owner context.
    * @param {number|null} userId - The logged-in user id.
    * @param {Function} [switchTarget] - Maps the picked context to the hash to navigate to.

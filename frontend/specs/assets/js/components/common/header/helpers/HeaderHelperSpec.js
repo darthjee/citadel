@@ -79,6 +79,10 @@ describe('HeaderHelper', () => {
       expect(markupOf(false, true)).not.toContain('href="#/admin/users"');
     });
 
+    it('does not render the context switcher', () => {
+      expect(markupOf(false, false)).not.toContain('context-switcher');
+    });
+
     it('does not render the My account dropdown', () => {
       expect(markupOf(false, false)).not.toContain('My account');
     });
@@ -106,6 +110,14 @@ describe('HeaderHelper', () => {
 
       expect(markup).toContain('href="#/admin/users"');
       expect(markup).toContain('Admin Users');
+    });
+
+    it('renders the context switcher first, before the auth links', () => {
+      const markup = markupOf(true, false);
+
+      expect(markup).toContain('id="context-switcher"');
+      expect(markup.indexOf('context-switcher')).toBeLessThan(markup.indexOf('My account'));
+      expect(markup.indexOf('context-switcher')).toBeLessThan(markup.indexOf('Logout'));
     });
 
     it('renders the My account dropdown with an Authorizations item', () => {
@@ -137,6 +149,7 @@ describe('HeaderHelper', () => {
     it('renders no logged-in menu, even with loggedIn set', () => {
       const markup = pendingMarkup(true);
 
+      expect(markup).not.toContain('context-switcher');
       expect(markup).not.toContain('Logout');
       expect(markup).not.toContain('My account');
     });

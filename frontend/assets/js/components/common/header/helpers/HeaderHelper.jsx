@@ -2,6 +2,7 @@ import Navbar from 'react-bootstrap/cjs/Navbar.js';
 import Nav from 'react-bootstrap/cjs/Nav.js';
 import Container from 'react-bootstrap/cjs/Container.js';
 import NavDropdown from 'react-bootstrap/cjs/NavDropdown.js';
+import ContextSwitcher from '../contextSwitcher/ContextSwitcher.jsx';
 
 /**
  * Render a single link that opens the login modal in a given mode instead of navigating.
@@ -93,7 +94,8 @@ function renderAuthLinks(isLoggedIn, isAdmin, onLogout, onOpenLogin, pending) {
  */
 const HeaderHelper = {
   /**
-   * Render the application navigation bar.
+   * Render the application navigation bar: the brand, then the context switcher (once logged
+   * in and approved) followed by the auth links.
    *
    * @param {boolean} isLoggedIn - Whether a session is currently active.
    * @param {boolean} isAdmin - Whether the current session belongs to an admin user.
@@ -113,6 +115,7 @@ const HeaderHelper = {
           <Navbar.Toggle aria-controls="header-navbar" />
           <Navbar.Collapse id="header-navbar">
             <Nav className="me-auto">
+              <ContextSwitcher loggedIn={isLoggedIn} pending={pending} />
               {renderAuthLinks(isLoggedIn, isAdmin, onLogout, onOpenLogin, pending)}
             </Nav>
           </Navbar.Collapse>
