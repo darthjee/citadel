@@ -10,6 +10,7 @@ export const ACTIONS = Object.freeze({
   WRITE: 'write',
   RENAME_ORGANIZATION: 'rename_organization',
   DELETE: 'delete',
+  MANAGE_LISTS: 'manage_lists',
 });
 
 const ROLE_RANK = new Map([
@@ -22,13 +23,15 @@ const MIN_ROLE = new Map([
   [ACTIONS.WRITE, ROLES.USER],
   [ACTIONS.RENAME_ORGANIZATION, ROLES.ADMIN],
   [ACTIONS.DELETE, ROLES.ADMIN],
+  [ACTIONS.MANAGE_LISTS, ROLES.ADMIN],
 ]);
 
 /**
  * Tells whether a role may perform an action.
  *
- * @description Mirrors the backend `@MinOrgRole` matrix: `WRITE` needs `user`, every other
- * action needs `admin`. An unknown or `null` role (not yet loaded) and an unknown action both
+ * @description Mirrors the backend `@MinOrgRole` matrix: `WRITE` (e.g. creating or updating a
+ * todo item) needs `user`; `RENAME_ORGANIZATION`, `DELETE` (e.g. deleting a todo list or item)
+ * and `MANAGE_LISTS` (creating or renaming a todo list) need `admin`. An unknown or `null` role (not yet loaded) and an unknown action both
  * return `false`.
  * @param {string|null|undefined} role - The caller's organization role.
  * @param {string} action - One of {@link ACTIONS}.

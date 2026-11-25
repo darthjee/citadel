@@ -15,6 +15,14 @@ describe('sectionTarget', () => {
     it('is an array', () => {
       expect(Array.isArray(SECTIONS_CONTEXT)).toBeTrue();
     });
+
+    it('registers the todo lists section', () => {
+      expect(SECTIONS_CONTEXT).toContain(['/todo/lists', '/todo/lists']);
+    });
+
+    it('maps a todo page to the todo lists index by default', () => {
+      expect(sectionListPathFor('#/orgs/5/todo/lists/7/edit')).toBe('/todo/lists');
+    });
   });
 
   describe('sectionListPathFor', () => {

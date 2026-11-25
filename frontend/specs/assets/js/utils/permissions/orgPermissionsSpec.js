@@ -33,6 +33,7 @@ describe('orgPermissions', () => {
       [ACTIONS.WRITE, { user: true, admin: true, owner: true }],
       [ACTIONS.RENAME_ORGANIZATION, { user: false, admin: true, owner: true }],
       [ACTIONS.DELETE, { user: false, admin: true, owner: true }],
+      [ACTIONS.MANAGE_LISTS, { user: false, admin: true, owner: true }],
     ];
 
     it('covers every action', () => {
