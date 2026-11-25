@@ -1,6 +1,6 @@
 # Organizations - Glossary
 
-Hub: [Organizations](../orgs.md).
+Hub: [Organizations](README.md).
 
 ## Why this page exists
 

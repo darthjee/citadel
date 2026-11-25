@@ -1,6 +1,6 @@
 # Organizations - General
 
-Hub: [Organizations](../orgs.md).
+Hub: [Organizations](README.md).
 
 ## What an organization is
 

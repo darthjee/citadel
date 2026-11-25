@@ -1,6 +1,6 @@
 # Organizations - Examples
 
-Hub: [Organizations](../orgs.md).
+Hub: [Organizations](README.md).
 
 Concrete requests and responses for the four organization routes.
 

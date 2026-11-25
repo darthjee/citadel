@@ -1,6 +1,6 @@
 # Organizations - Models
 
-Hub: [Organizations](../orgs.md).
+Hub: [Organizations](README.md).
 
 ## Summary
 

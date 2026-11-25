@@ -1,6 +1,6 @@
 # Organizations - Security
 
-Hub: [Organizations](../orgs.md).
+Hub: [Organizations](README.md).
 
 ## Threat model
 

@@ -1,6 +1,6 @@
 # Organizations - Endpoints
 
-Hub: [Organizations](../orgs.md).
+Hub: [Organizations](README.md).
 
 ## Summary
 

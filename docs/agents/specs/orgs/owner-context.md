@@ -1,6 +1,6 @@
 # Organizations - Owner Context
 
-Hub: [Organizations](../orgs.md).
+Hub: [Organizations](README.md).
 
 ## Summary
 

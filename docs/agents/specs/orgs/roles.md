@@ -1,6 +1,6 @@
 # Organizations - Roles
 
-Hub: [Organizations](../orgs.md).
+Hub: [Organizations](README.md).
 
 ## Summary
 

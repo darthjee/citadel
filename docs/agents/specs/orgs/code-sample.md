@@ -1,6 +1,6 @@
 # Organizations - Code Sample
 
-Hub: [Organizations](../orgs.md).
+Hub: [Organizations](README.md).
 
 ## Purpose
 
