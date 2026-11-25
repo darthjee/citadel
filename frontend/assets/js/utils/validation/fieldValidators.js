@@ -47,3 +47,31 @@ export function validatePasswordLength(password, field = 'password') {
 export function validatePasswordConfirmation(password, confirmation, field = 'passwordConfirmation') {
   return password === confirmation ? {} : { [field]: 'Passwords do not match' };
 }
+
+/** Maximum organization name length, in code points; mirrors the backend's limit. */
+export const MAX_ORGANIZATION_NAME_LENGTH = 255;
+
+/**
+ * Check that an organization name is present and not too long, once trimmed.
+ *
+ * @description Returns an error map so the result can be spread into a controller's errors.
+ * Length is counted in code points (`[...trimmed].length`), so astral characters such as emoji
+ * count once.
+ * @param {string} name - The organization name to check.
+ * @param {string} [field] - The field name the error is keyed under.
+ * @returns {object} `{ [field]: message }` when blank or longer than
+ *   {@link MAX_ORGANIZATION_NAME_LENGTH} code points, otherwise `{}`.
+ */
+export function validateOrganizationName(name, field = 'name') {
+  const trimmed = (name ?? '').trim();
+
+  if (trimmed === '') {
+    return { [field]: 'Name is required' };
+  }
+
+  if ([...trimmed].length > MAX_ORGANIZATION_NAME_LENGTH) {
+    return { [field]: `Name must be at most ${MAX_ORGANIZATION_NAME_LENGTH} characters` };
+  }
+
+  return {};
+}

@@ -22,6 +22,7 @@ function organization(orgId) {
 describe('HashRouteResolver', () => {
   describe('Personal-only routes', () => {
     [
+      ['#/orgs/new', 'org-new'],
       ['#/recover-password', 'reset-password'],
       ['#/recover-password?token=abc123', 'reset-password'],
       ['#/admin/users', 'admin-users'],
@@ -48,16 +49,32 @@ describe('HashRouteResolver', () => {
   });
 
   describe('default tables', () => {
-    it('starts with no organization-only routes', () => {
-      expect(ROUTES_ORG_ONLY).toEqual([]);
+    it('registers the organization pages as organization-only routes', () => {
+      expect(ROUTES_ORG_ONLY).toEqual([['/', 'org-overview'], ['/edit', 'org-edit']]);
     });
 
     it('starts with no context-aware routes', () => {
       expect(ROUTES_CONTEXT).toEqual([]);
     });
 
-    it('falls back to home for a valid organization root', () => {
-      expect(resolve('#/orgs/5')).toEqual({ page: 'home', context: PERSONAL });
+    it('resolves #/orgs/new to org-new in Personal without reading an org id', () => {
+      expect(resolve('#/orgs/new')).toEqual({ page: 'org-new', context: PERSONAL });
+    });
+
+    it('resolves the organization root to org-overview', () => {
+      expect(resolve('#/orgs/5')).toEqual({ page: 'org-overview', context: organization(5) });
+    });
+
+    it('resolves the organization edit page to org-edit', () => {
+      expect(resolve('#/orgs/5/edit')).toEqual({ page: 'org-edit', context: organization(5) });
+    });
+
+    it('resolves a malformed id with a rest to not-found', () => {
+      expect(resolve('#/orgs/abc/edit')).toEqual({ page: 'not-found', context: PERSONAL });
+    });
+
+    it('does not resolve /orgs/new under an organization prefix', () => {
+      expect(resolve('#/orgs/5/orgs/new')).toEqual({ page: 'home', context: PERSONAL });
     });
   });
 

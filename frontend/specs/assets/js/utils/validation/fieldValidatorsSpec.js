@@ -1,7 +1,9 @@
 import {
   EMAIL_PATTERN,
+  MAX_ORGANIZATION_NAME_LENGTH,
   MIN_PASSWORD_LENGTH,
   validateEmail,
+  validateOrganizationName,
   validatePasswordLength,
   validatePasswordConfirmation,
 } from '../../../../../assets/js/utils/validation/fieldValidators.js';
@@ -74,6 +76,60 @@ describe('fieldValidators', () => {
       expect(validatePasswordConfirmation('secret', 'other', 'newPasswordConfirmation')).toEqual({
         newPasswordConfirmation: 'Passwords do not match',
       });
+    });
+  });
+
+  describe('validateOrganizationName', () => {
+    it('exposes the maximum length', () => {
+      expect(MAX_ORGANIZATION_NAME_LENGTH).toBe(255);
+    });
+
+    it('returns no errors for a valid name', () => {
+      expect(validateOrganizationName('Acme')).toEqual({});
+    });
+
+    it('flags an empty name', () => {
+      expect(validateOrganizationName('')).toEqual({ name: 'Name is required' });
+    });
+
+    it('flags a whitespace-only name', () => {
+      expect(validateOrganizationName('   \t ')).toEqual({ name: 'Name is required' });
+    });
+
+    it('flags an undefined name', () => {
+      expect(validateOrganizationName(undefined)).toEqual({ name: 'Name is required' });
+    });
+
+    it('flags a null name', () => {
+      expect(validateOrganizationName(null)).toEqual({ name: 'Name is required' });
+    });
+
+    it('accepts exactly 255 code points', () => {
+      expect(validateOrganizationName('a'.repeat(255))).toEqual({});
+    });
+
+    it('flags 256 code points', () => {
+      expect(validateOrganizationName('a'.repeat(256))).toEqual({
+        name: 'Name must be at most 255 characters',
+      });
+    });
+
+    it('counts astral characters as one code point each', () => {
+      expect(validateOrganizationName('\u{1F600}'.repeat(255))).toEqual({});
+    });
+
+    it('flags 256 astral characters', () => {
+      expect(validateOrganizationName('\u{1F600}'.repeat(256))).toEqual({
+        name: 'Name must be at most 255 characters',
+      });
+    });
+
+    it('ignores surrounding whitespace when counting', () => {
+      expect(validateOrganizationName(`  ${'a'.repeat(255)}  `)).toEqual({});
+    });
+
+    it('keys the error under a custom field name', () => {
+      expect(validateOrganizationName('', 'orgName')).toEqual({ orgName: 'Name is required' });
     });
   });
 });
