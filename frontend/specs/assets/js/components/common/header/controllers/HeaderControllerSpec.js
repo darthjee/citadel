@@ -114,7 +114,7 @@ describe('HeaderController', () => {
 
       expect(client.status).toHaveBeenCalledWith('refresh-token');
       expect(AuthSession.get()).toBe('refresh-token');
-      expect(AuthEvents.emit).toHaveBeenCalledWith(true, true, false);
+      expect(AuthEvents.emit).toHaveBeenCalledWith(true, true, false, null);
     });
 
     it('keeps the stored token and emits pending when the user awaits approval', async () => {

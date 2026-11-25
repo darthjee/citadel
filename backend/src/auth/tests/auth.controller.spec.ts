@@ -127,14 +127,14 @@ describe('AuthController', () => {
 
   describe('POST /auth/status.json', () => {
     describe('when the service reports an active session', () => {
-      it('responds with { loggedIn: true, isAdmin }', async () => {
-        sessionStatusService.status.mockResolvedValue({ loggedIn: true, isAdmin: false });
+      it('responds with { loggedIn: true, isAdmin, userId }', async () => {
+        sessionStatusService.status.mockResolvedValue({ loggedIn: true, isAdmin: false, userId: 1 });
         const controller = buildController();
 
         const result = await controller.status({ refreshToken: 'a-refresh-token' });
 
         expect(sessionStatusService.status).toHaveBeenCalledWith('a-refresh-token');
-        expect(result).toEqual({ loggedIn: true, isAdmin: false });
+        expect(result).toEqual({ loggedIn: true, isAdmin: false, userId: 1 });
       });
     });
 

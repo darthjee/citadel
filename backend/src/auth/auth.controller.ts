@@ -171,8 +171,9 @@ export class AuthController {
    * establishing or renewing credentials. The only server-side write is
    * revoking a denied user's token (see `SessionStatusService#status`).
    * @param {RefreshTokenDto} dto - Carries the refresh token to check.
-   * @returns {Promise<object>} `{ loggedIn, isAdmin }`, plus `status: 'pending'`
-   *   for a pending user only; always `200`.
+   * @returns {Promise<object>} `{ loggedIn, isAdmin }`, plus `userId` (the
+   *   caller's own id) for an approved user only and `status: 'pending'` for a
+   *   pending user only; always `200`.
    */
   @Public()
   @Post('status.json')

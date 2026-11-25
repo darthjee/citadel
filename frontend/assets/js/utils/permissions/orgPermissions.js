@@ -8,9 +8,6 @@ export const ROLES = Object.freeze({
 /** Actions gated by the caller's organization role. */
 export const ACTIONS = Object.freeze({
   WRITE: 'write',
-  UNDO_PAYMENT: 'undo_payment',
-  EDIT_PAYMENT_TRANSACTION: 'edit_payment_transaction',
-  MANAGE_ACCOUNTS: 'manage_accounts',
   RENAME_ORGANIZATION: 'rename_organization',
   DELETE: 'delete',
 });
@@ -23,9 +20,6 @@ const ROLE_RANK = new Map([
 
 const MIN_ROLE = new Map([
   [ACTIONS.WRITE, ROLES.USER],
-  [ACTIONS.UNDO_PAYMENT, ROLES.ADMIN],
-  [ACTIONS.EDIT_PAYMENT_TRANSACTION, ROLES.ADMIN],
-  [ACTIONS.MANAGE_ACCOUNTS, ROLES.ADMIN],
   [ACTIONS.RENAME_ORGANIZATION, ROLES.ADMIN],
   [ACTIONS.DELETE, ROLES.ADMIN],
 ]);

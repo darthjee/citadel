@@ -1,7 +1,7 @@
 /**
  * Parse the query part of a raw hash.
  *
- * @param {string} hash - The raw hash value, e.g. `#/bank/accounts/12?page=3`.
+ * @param {string} hash - The raw hash value, e.g. `#/module/items/12?page=3`.
  * @returns {URLSearchParams} The params after the first `?` (empty when there is none).
  */
 export function hashQuery(hash) {

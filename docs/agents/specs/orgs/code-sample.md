@@ -7,11 +7,11 @@ Hub: [Organizations](README.md).
 Index of every source file needed to replicate the organizations feature. The list is split into
 three parts, meant to be copied **in order**:
 
-| Part | File | Files | Still in `code_sample/` after #26 | After #27 | After #28 |
-|---|---|---|---|---|---|
-| 1. Backend | [code-sample-backend.md](./code-sample-backend.md) | 67 | 45 | 25 | 4 |
-| 2. Migrations | [code-sample-migrations.md](./code-sample-migrations.md) | 2 | 1 | 1 | 0 |
-| 3. Frontend | [code-sample-frontend.md](./code-sample-frontend.md) | 57 | 57 | 57 | 57 |
+| Part | File | Files | Still in `code_sample/` after #26 | After #27 | After #28 | After #29 |
+|---|---|---|---|---|---|---|
+| 1. Backend | [code-sample-backend.md](./code-sample-backend.md) | 67 | 45 | 25 | 4 | 4 |
+| 2. Migrations | [code-sample-migrations.md](./code-sample-migrations.md) | 2 | 1 | 1 | 0 | 0 |
+| 3. Frontend | [code-sample-frontend.md](./code-sample-frontend.md) | 57 | 57 | 57 | 57 | 21 |
 
 **Total: 126 files plus 3 directories** (103 files plus 3 directories still under `code_sample/`
 after #26: 4 files were ported into `backend/src/core/`, and 19 no-port copies of files citadel
@@ -21,7 +21,12 @@ directories** remain: the owner-context mechanism and its core specs (20 files, 
 directory** remain: the organizations backend (entities, service, controller, module, DTO, response,
 invalidation), its specs and `auth/tests/support/`, and the organizations migration were ported into
 `backend/src/` (22 files); only `core/cache-class.ts` and `core/cache-policy.interceptor.ts` (#33) and
-the two `bank` reference files (#31) are left on the backend side.
+the two `bank` reference files (#31) are left on the backend side. After #29, **25 files** remain:
+the frontend foundation (routing, context, permissions, provider/hooks/controllers, client layer)
+and its routing/context/permissions specs plus `specs/support/jsx-loader.mjs` (36 files, one
+directory) were ported into or reconciled with `frontend/`; only the organizations pages, header
+and switcher, `NotFound.jsx`, `PermissionDenied.jsx` and the five page specs (21 files, #30) are
+left on the frontend side.
 
 The split follows the dependency order, not a preference: the backend compiles without the
 frontend, the migrations need the entities to exist first, and the frontend needs both.

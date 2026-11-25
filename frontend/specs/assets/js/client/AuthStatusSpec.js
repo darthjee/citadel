@@ -32,7 +32,7 @@ describe('AuthStatus', () => {
     describe('when the stored token is still active', () => {
       beforeEach(() => {
         AuthSession.set('refresh-token');
-        client.status.and.resolveTo({ loggedIn: true, isAdmin: true });
+        client.status.and.resolveTo({ loggedIn: true, isAdmin: true, userId: 7 });
       });
 
       it('checks the stored token', async () => {
@@ -47,25 +47,35 @@ describe('AuthStatus', () => {
         expect(AuthSession.get()).toBe('refresh-token');
       });
 
-      it('emits logged-in with the admin flag', async () => {
+      it('emits logged-in with the admin flag and the user id', async () => {
         await AuthStatus.refresh(client);
 
-        expect(AuthEvents.emit).toHaveBeenCalledWith(true, true, false);
+        expect(AuthEvents.emit).toHaveBeenCalledWith(true, true, false, 7);
       });
 
       it('emits a non-admin login when isAdmin is false', async () => {
+        client.status.and.resolveTo({ loggedIn: true, isAdmin: false, userId: 7 });
+
+        await AuthStatus.refresh(client);
+
+        expect(AuthEvents.emit).toHaveBeenCalledWith(true, false, false, 7);
+      });
+
+      it('emits a null user id when the answer carries none', async () => {
         client.status.and.resolveTo({ loggedIn: true, isAdmin: false });
 
         await AuthStatus.refresh(client);
 
-        expect(AuthEvents.emit).toHaveBeenCalledWith(true, false, false);
+        expect(AuthEvents.emit).toHaveBeenCalledWith(true, false, false, null);
       });
     });
 
     describe('when the user is pending approval', () => {
       beforeEach(() => {
         AuthSession.set('refresh-token');
-        client.status.and.resolveTo({ loggedIn: false, isAdmin: false, status: 'pending' });
+        client.status.and.resolveTo({
+          loggedIn: false, isAdmin: false, status: 'pending', userId: 7,
+        });
       });
 
       it('keeps the token', async () => {
@@ -84,7 +94,7 @@ describe('AuthStatus', () => {
     describe('when the stored token is no longer active', () => {
       beforeEach(() => {
         AuthSession.set('refresh-token');
-        client.status.and.resolveTo({ loggedIn: false, isAdmin: false });
+        client.status.and.resolveTo({ loggedIn: false, isAdmin: false, userId: 7 });
       });
 
       it('clears the token', async () => {

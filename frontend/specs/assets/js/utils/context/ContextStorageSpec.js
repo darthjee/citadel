@@ -38,7 +38,7 @@ describe('ContextStorage', () => {
       subject.rememberOrganization(1, 5);
 
       expect(subject.read(1)).toBe(5);
-      expect(storage.store.get('ward.context.1')).toBe('5');
+      expect(storage.store.get('citadel_placeholder.context.1')).toBe('5');
     });
 
     it('keeps users isolated', () => {
@@ -50,14 +50,14 @@ describe('ContextStorage', () => {
 
     ['abc', '007', '0', '2147483648', '{"orgId":5}', ''].forEach((value) => {
       it(`reads the garbage value ${JSON.stringify(value)} as null`, () => {
-        storage.store.set('ward.context.1', value);
+        storage.store.set('citadel_placeholder.context.1', value);
 
         expect(subject.read(1)).toBeNull();
       });
     });
 
     it('reads null without a user id', () => {
-      storage.store.set('ward.context.undefined', '5');
+      storage.store.set('citadel_placeholder.context.undefined', '5');
 
       expect(subject.read(undefined)).toBeNull();
     });
@@ -68,7 +68,7 @@ describe('ContextStorage', () => {
       subject.rememberOrganization(1, 5);
       subject.rememberPersonal(1);
 
-      expect(storage.store.has('ward.context.1')).toBe(false);
+      expect(storage.store.has('citadel_placeholder.context.1')).toBe(false);
     });
   });
 
@@ -149,7 +149,7 @@ describe('ContextStorage', () => {
     });
 
     it('uses window.localStorage', () => {
-      const local = memoryStorage({ 'ward.context.3': '9' });
+      const local = memoryStorage({ 'citadel_placeholder.context.3': '9' });
 
       installFakeWindow({ localStorage: local });
 

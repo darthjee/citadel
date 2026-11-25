@@ -102,15 +102,19 @@ for every status.
 | Controller | `AuthController` (delegates to `SessionStatusService`) |
 | Auth | `@Public()` |
 | Request body | `RefreshTokenDto` — `{ refreshToken: string }` |
-| Success response | `{ loggedIn, isAdmin }`, plus `status: 'pending'` for a pending user only |
+| Success response | `{ loggedIn, isAdmin }`, plus `userId` for an approved user only and `status: 'pending'` for a pending user only |
 | HTTP status | `200` (default), always |
 
 | Caller | Response body | Session |
 | --- | --- | --- |
-| Active session, `approved` | `{ "loggedIn": true, "isAdmin": <bool> }` | kept |
+| Active session, `approved` | `{ "loggedIn": true, "isAdmin": <bool>, "userId": <number> }` | kept |
 | Active session, `pending` | `{ "loggedIn": false, "isAdmin": false, "status": "pending" }` | **kept** |
 | Active session, `denied` | `{ "loggedIn": false, "isAdmin": false }` — byte-for-byte the anonymous answer | the presented token is revoked with `admin_denied` |
 | Unknown, revoked or expired token | `{ "loggedIn": false, "isAdmin": false }` | — |
+
+`userId` is the caller's own `User.id` (already known to them from the login/register `user`
+payload, so nothing new is exposed); the frontend uses it to key the remembered organization
+context per user. No logged-out answer carries it.
 
 Passive otherwise: no rotation, no replay detection, and the `access_token` cookie is not
 touched, so a second tab's check never logs the first one out. The pending answer is the one

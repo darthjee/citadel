@@ -42,10 +42,10 @@ describe('SessionStatusService', () => {
         userRepository.findOneBy.mockResolvedValue(user);
       });
 
-      it('resolves with loggedIn: true and the user isAdmin, without status', async () => {
+      it('resolves with loggedIn: true, the user isAdmin and userId, without status', async () => {
         const result = await service.status('a-refresh-token');
 
-        expect(result).toEqual({ loggedIn: true, isAdmin: false });
+        expect(result).toEqual({ loggedIn: true, isAdmin: false, userId: 1 });
         expect(result).not.toHaveProperty('status');
       });
 
@@ -76,7 +76,7 @@ describe('SessionStatusService', () => {
       });
 
       it('resolves with isAdmin: true', async () => {
-        await expect(service.status('a-refresh-token')).resolves.toEqual({ loggedIn: true, isAdmin: true });
+        await expect(service.status('a-refresh-token')).resolves.toEqual({ loggedIn: true, isAdmin: true, userId: 1 });
       });
     });
 
@@ -92,6 +92,10 @@ describe('SessionStatusService', () => {
           isAdmin: false,
           status: 'pending',
         });
+      });
+
+      it('never carries a userId', async () => {
+        await expect(service.status('a-refresh-token')).resolves.not.toHaveProperty('userId');
       });
 
       it('keeps the session (no revocation)', async () => {

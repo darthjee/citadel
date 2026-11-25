@@ -62,7 +62,7 @@ function prefixed(context, path) {
  * Build the API path for a context-aware resource.
  *
  * @param {object} context - The owner context.
- * @param {string} apiPath - The Personal API path, e.g. `/bank/accounts.json`.
+ * @param {string} apiPath - The Personal API path, e.g. `/widgets.json`.
  * @returns {string} `apiPath` for Personal, `/orgs/<id><apiPath>` for an organization.
  */
 export function contextPath(context, apiPath) {
@@ -74,7 +74,7 @@ export function contextPath(context, apiPath) {
  *
  * @description `uiPath` `'/'` in an organization context yields `#/orgs/<id>` (no trailing slash).
  * @param {object} context - The owner context.
- * @param {string} uiPath - The Personal UI path, e.g. `/bank/accounts`.
+ * @param {string} uiPath - The Personal UI path, e.g. `/widgets`.
  * @returns {string} `#<uiPath>` for Personal, `#/orgs/<id><uiPath>` for an organization.
  */
 export function contextHash(context, uiPath) {

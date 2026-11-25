@@ -61,7 +61,7 @@ describe('LoginModalController status re-check', () => {
 
         await build().handleSubmit(mode, fields);
 
-        expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, false, false);
+        expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, false, false, null);
         expect(LoginModalEvents.close).toHaveBeenCalledTimes(1);
         expect(globalThis.window.location.hash).toBe('/');
       });
@@ -117,7 +117,7 @@ describe('LoginModalController status re-check', () => {
       await approve();
 
       expect(client.status).toHaveBeenCalledWith('refresh-token');
-      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, true, false);
+      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, true, false, null);
       expect(LoginModalEvents.close).toHaveBeenCalledTimes(1);
     });
 

@@ -68,11 +68,11 @@ describe('ownerContext', () => {
 
   describe('contextHash', () => {
     it('builds a Personal hash', () => {
-      expect(contextHash(PERSONAL, '/bank/accounts')).toBe('#/bank/accounts');
+      expect(contextHash(PERSONAL, '/widgets')).toBe('#/widgets');
     });
 
     it('builds an organization hash', () => {
-      expect(contextHash(org, '/bank/accounts')).toBe('#/orgs/5/bank/accounts');
+      expect(contextHash(org, '/widgets')).toBe('#/orgs/5/widgets');
     });
 
     it('builds the Personal root hash', () => {
@@ -128,12 +128,12 @@ describe('ownerContext', () => {
 
   describe('splitOrgPrefix', () => {
     it('returns null without an /orgs/<seg> prefix', () => {
-      expect(splitOrgPrefix('/bank/accounts')).toBeNull();
+      expect(splitOrgPrefix('/widgets')).toBeNull();
       expect(splitOrgPrefix('/orgs')).toBeNull();
     });
 
     it('splits a valid id and the rest', () => {
-      expect(splitOrgPrefix('/orgs/5/bank')).toEqual({ orgId: 5, rest: '/bank' });
+      expect(splitOrgPrefix('/orgs/5/widgets')).toEqual({ orgId: 5, rest: '/widgets' });
     });
 
     it('uses / as the rest of the organization root', () => {
@@ -147,7 +147,7 @@ describe('ownerContext', () => {
 
   describe('stripContextPrefix', () => {
     it('strips a valid organization prefix', () => {
-      expect(stripContextPrefix('#/orgs/5/bank/accounts?x=1')).toBe('/bank/accounts');
+      expect(stripContextPrefix('#/orgs/5/widgets?x=1')).toBe('/widgets');
     });
 
     it('strips the organization root to /', () => {
@@ -155,7 +155,7 @@ describe('ownerContext', () => {
     });
 
     it('keeps a Personal path', () => {
-      expect(stripContextPrefix('#/bank/accounts')).toBe('/bank/accounts');
+      expect(stripContextPrefix('#/widgets')).toBe('/widgets');
     });
 
     it('keeps a malformed organization path', () => {

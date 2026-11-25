@@ -1,6 +1,7 @@
 import ApiError from './ApiError.js';
 import AuthSession from './AuthSession.js';
 import LoginModalEvents from './LoginModalEvents.js';
+import PermissionEvents from './PermissionEvents.js';
 
 const REFRESH_PATH = '/auth/refresh.json';
 const FALLBACK_ERROR_MESSAGE = 'Request failed';
@@ -61,19 +62,26 @@ function buildApiError(response, data) {
 /**
  * Perform a raw JSON request, without any `401`-recovery behavior.
  *
+ * @description A request without a body (`body === undefined`, e.g. a GET — `fetch` rejects a
+ * GET carrying a body) is sent with no `body` option at all.
  * @param {string} method - HTTP method.
  * @param {string} path - Request path.
- * @param {object} body - Fields to serialize as the JSON request body.
+ * @param {object} [body] - Fields to serialize as the JSON request body; omitted for none.
  * @returns {Promise<{response: Response, data: object}>} The raw response and its parsed
  *   JSON body.
  */
 async function request(method, path, body) {
-  const response = await fetch(path, {
+  const options = {
     method,
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(body),
-  });
+  };
+
+  if (body !== undefined) {
+    options.body = JSON.stringify(body);
+  }
+
+  const response = await fetch(path, options);
 
   const data = await parseBody(response);
 
@@ -106,7 +114,8 @@ function sessionExpired(error) {
  * by the backend (via `Set-Cookie`) is stored/sent automatically. On a `401`, delegates to
  * {@link handleUnauthorized} unless `skipAuthRecovery` is set (the `401` is then a plain
  * {@link ApiError}), or this is already a retried request, in which case the session is
- * treated as expired directly.
+ * treated as expired directly. On a `403`, announces it on the shared {@link PermissionEvents}
+ * bus (so the caller's role is refreshed) before throwing.
  *
  * @param {string} method - HTTP method.
  * @param {string} path - Request path.
@@ -132,6 +141,10 @@ async function sendJson(method, path, body, options = {}) {
     return isRetry
       ? sessionExpired(error)
       : handleUnauthorized(method, path, body, error);
+  }
+
+  if (response.status === 403) {
+    PermissionEvents.emitForbidden();
   }
 
   throw buildApiError(response, data);
@@ -175,6 +188,21 @@ async function handleUnauthorized(method, path, body, originalError) {
  * flagged `sessionExpired`. Pass `{ skipAuthRecovery: true }` for public routes.
  */
 const ApiClient = {
+  /**
+   * Submit a GET request, without a body. Same headers/credentials/error-handling shape as
+   * {@link ApiClient.postJson}.
+   *
+   * @param {string} path - Request path.
+   * @param {object} [options] - Request options.
+   * @param {boolean} [options.skipAuthRecovery] - When true, a `401` is rejected as a plain
+   *   {@link ApiError} with no refresh, retry or session change (for public routes).
+   * @returns {Promise<object>} The parsed JSON response body, on success.
+   * @throws {ApiError} On failure; with `sessionExpired === true` when recovery failed.
+   */
+  async getJson(path, options = {}) {
+    return sendJson('GET', path, undefined, { skipAuthRecovery: options.skipAuthRecovery });
+  },
+
   /**
    * Submit a POST request with a JSON body. Always sends same-origin credentials so the
    * session cookie set by the backend (via `Set-Cookie`) is stored/sent automatically.

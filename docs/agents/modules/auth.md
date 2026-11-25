@@ -20,13 +20,14 @@ routing convention (`docs/agents/architecture/backend.md`):
 | `POST /auth/register.json` | `{ username, email, password }` | `{ user, refreshToken }` + `access_token` cookie |
 | `POST /auth/refresh.json` | `{ refreshToken }` | `{ user, refreshToken }` + `access_token` cookie |
 | `DELETE /auth/logoff.json` | `{ refreshToken }` | `204 No Content`, clears the `access_token` cookie |
-| `POST /auth/status.json` | `{ refreshToken }` | `{ loggedIn, isAdmin }`, plus `status: "pending"` for a pending user |
+| `POST /auth/status.json` | `{ refreshToken }` | `{ loggedIn, isAdmin }`, plus `userId` for an approved user and `status: "pending"` for a pending user |
 
 `user` is always `{ id, username, email, isAdmin }` — `passwordDigest` and the account `status`
 are never serialized. `isAdmin` is the only way the frontend can learn whether the logged-in
 user is an admin, since the `access_token` cookie is `httpOnly`. `/auth/status.json`
 (`SessionStatusService`) resolves `isAdmin` from the token row's user when `loggedIn` is `true`,
-and it is always `false` when `loggedIn` is `false`.
+and it is always `false` when `loggedIn` is `false`. `userId` (the caller's own `User.id`) is
+added only when `loggedIn` is `true`.
 
 Login, register, status, refresh, recover/reset and the device-authorization poll answer
 differently for `pending` and `denied` users (for example `403 USER_DENIED` on a denied user's

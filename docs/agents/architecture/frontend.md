@@ -22,8 +22,11 @@ template.
 frontend/assets/js/
   App.jsx, main.jsx           # entry point — mounts App into #root
   components/
-    AppController.js          # resolves the current route, renders the matching page
+    AppController.js          # resolves the current { page, context } route, kept in sync
+                              #   with hashchange; App mounts OwnerContextProvider around the page
     common/
+      ownerContext/           # OwnerContextProvider.jsx, hooks/ (useOwnerContext, useCan),
+                              #   controllers/ (OrgListController, forbiddenRefreshEffect)
       header/                 # Header.jsx + controller/helper/hook — Login/Logout nav
       awaitingApproval/       # AwaitingApprovalGate.jsx, AwaitingApproval.jsx + controllers/,
                               #   helpers/, hooks/useWindowFocusRecheck.js — pending-account view
@@ -43,15 +46,29 @@ frontend/assets/js/
                                #   AdminUserEdit.jsx
   client/                      # AccountsClient, AdminClient, ApiClient, ApiError,
                                 #   AuthSession, AuthEvents, AuthStatus, LoginModalEvents,
+                                #   OrganizationsClient, PermissionEvents,
                                 #   pickDefined.js (drops undefined keys from request bodies)
   utils/
-    routing/                   # Router, Route, HashRouteResolver
+    routing/                   # Router, Route, HashRouteResolver, routes.js (route tables),
+                               #   sectionTarget.js, hashQuery.js, redirects.js
+    context/                   # ownerContext.js, ContextStorage.js, entryResolution.js
+    permissions/               # orgPermissions.js (can(role, action), fails closed)
     polling/AuthorizationRequestPoller.js
     validation/                # fieldValidators, formValidators (shared client-side form rules)
 
 frontend/specs/                # mirrors assets/js/ above, one spec per source file
   support/jsx-loader.mjs
 ```
+
+## Routing and owner context
+
+Routing is hash-based: `HashRouteResolver.resolve()` returns `{ page, context }`, where `context`
+is the owner context (`{ kind: 'personal' }` or `{ kind: 'organization', orgId }`) read from an
+optional `/orgs/<id>` prefix; the URL is the only source of the active context.
+`AppHelper.render(page)` maps the page key to a component (unknown keys, including `not-found`,
+fall back to home). The route tables, the malformed-id guard, the remembered context, `can()` and
+the `OwnerContextProvider` are described in
+[Organizations → Frontend](../modules/auth/organizations.md#frontend).
 
 New application views should follow the shape already used above (`components/`, `client/`,
 `utils/`) rather than inventing a new one — see `frontend.md` in `.claude/agents/` for the full
@@ -90,12 +107,15 @@ the retried request comes back `401` again, `ApiClient` treats the session as ex
 **rejects** with the `ApiError` built from the original (first) `401`, marked
 `sessionExpired: true`.
 
-`postJson`/`deleteJson`/`patchJson` take an optional `{ skipAuthRecovery: true }` option that
+`getJson` (sent with no `body` option), `postJson`/`deleteJson`/`patchJson` take an optional `{ skipAuthRecovery: true }` option that
 skips all of the above: a `401` rejects as a plain `ApiError` with no refresh, no retry and no
 session change. `AccountsClient` passes it on every `@Public()` backend route — `register`,
 `login`, `refresh`, `logout`, `status`, `recover`, `resetPassword`,
 `createAuthorizationRequest` and `pollAuthorizationRequest` — because a `401` there is a real
 credential error (e.g. a wrong password), not an expired session.
+
+On any `403`, `ApiClient` emits `permission:forbidden` through `client/PermissionEvents.js` before
+rejecting, so the owner-context provider refreshes the caller's organization role.
 
 ### Login modal
 
@@ -143,8 +163,9 @@ session is pending approval. Logging out calls
 
 The frontend side of [User approval](../modules/auth/user-approval.md):
 
-- **`pending` on the auth bus**: `AuthEvents.emit(loggedIn, isAdmin = false, pending = false)`;
-  the event `detail` carries `pending`. While pending, `loggedIn` and `isAdmin` are `false`, and
+- **`pending` on the auth bus**: `AuthEvents.emit(loggedIn, isAdmin = false, pending = false,
+  userId = null)`; the event `detail` carries `pending` and `userId` (the logged-in user's id,
+  `null` otherwise — used to key the remembered owner context). While pending, `loggedIn` and `isAdmin` are `false`, and
   the header (`HeaderHelper`) renders **no auth links at all** (neither Login nor the logged-in
   menu); Log out is reachable from the awaiting-approval view.
 - **`client/AuthStatus.js`**: `AuthStatus.refresh(client = AccountsClient)` is the single place
@@ -153,7 +174,7 @@ The frontend side of [User approval](../modules/auth/user-approval.md):
 
   | `status.json` answer | Stored refresh token | Emitted |
   |---|---|---|
-  | `{ loggedIn: true, … }` | kept | `(true, isAdmin, false)` |
+  | `{ loggedIn: true, …, userId }` | kept | `(true, isAdmin, false, userId ?? null)` |
   | `{ loggedIn: false, …, status: "pending" }` | **kept**, so an approval is picked up without a new login | `(false, false, true)` |
   | anything else (denied, revoked, expired, unknown) | cleared (`AuthSession.clear()`) | `(false, false, false)` |
   | — (no stored token) | — (no request) | `(false, false, false)` |

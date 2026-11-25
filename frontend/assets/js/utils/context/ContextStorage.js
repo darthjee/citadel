@@ -1,6 +1,6 @@
 import { parseOrgId } from './ownerContext.js';
 
-const KEY_PREFIX = 'ward.context.';
+const KEY_PREFIX = 'citadel_placeholder.context.';
 
 /**
  * Resolve the browser's `localStorage` lazily; SSR/spec-safe.
@@ -32,7 +32,7 @@ function safely(resolveStorage, access) {
  * Build the storage key for a user.
  *
  * @param {number} userId - The user id.
- * @returns {string} The key `ward.context.<userId>`.
+ * @returns {string} The key `citadel_placeholder.context.<userId>`.
  */
 function keyFor(userId) {
   return `${KEY_PREFIX}${userId}`;
@@ -116,7 +116,7 @@ export function buildContextStorage(resolveStorage) {
 }
 
 /**
- * Per-user "last used context" store, keyed `ward.context.<userId>` in `window.localStorage`.
+ * Per-user "last used context" store, keyed `citadel_placeholder.context.<userId>` in `window.localStorage`.
  * Logout does not clear it.
  */
 const ContextStorage = buildContextStorage(defaultStorage);
