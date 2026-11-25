@@ -11,6 +11,19 @@ const ALL = { canManage: true, canDelete: true, canWrite: true };
 const NONE = { canManage: false, canDelete: false, canWrite: false };
 const USER = { canManage: false, canDelete: false, canWrite: true };
 
+const noop = () => undefined;
+const HANDLERS = {
+  onDeleteList: noop,
+  onToggleItem: noop,
+  onStartEdit: noop,
+  onEditChange: noop,
+  onSaveEdit: noop,
+  onCancelEdit: noop,
+  onDeleteItem: noop,
+  onNewDescriptionChange: noop,
+  onAddItem: noop,
+};
+
 const render = (state) => renderedOutput(TodoListShowHelper.render({
   list: LIST,
   loadError: null,
@@ -21,7 +34,7 @@ const render = (state) => renderedOutput(TodoListShowHelper.render({
   newDescription: '',
   editing: null,
   ...state,
-}, {}));
+}, HANDLERS));
 
 describe('TodoListShowHelper', () => {
   it('renders the loading state', () => {
