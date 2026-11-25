@@ -35,6 +35,8 @@ backend/src/
 │   ├── http-exception.filter.ts #  global APP_FILTER writing the standard error body
 │   ├── error-codes.ts         #   category/specific error codes + status → code mapping
 │   ├── locked.exception.ts    #   423 Locked HttpException
+│   ├── strict-validation.pipe.ts #  @StrictBody(): strict per-parameter body validation (unknown fields → 400)
+│   ├── parse-id.ts            #   parseId / ownerNotFound: strict route id parsing, uniform 404
 │   ├── cache-token.service.ts #   HMAC cache-token generation for Tent cache keying
 │   ├── lazy-module-loader.service.ts  # thin wrapper around Nest's LazyModuleLoader
 │   └── tests/
@@ -229,6 +231,46 @@ authorization-request `Unable to authorize/deny this request` failures, and the 
 unknown vs. wrong-token authorization request) must keep one status, one message and the
 category code only. Never attach a specific code that would let a caller tell the underlying
 cases apart.
+
+## Body validation
+
+Two ways to validate a request body, with different handling of fields the DTO does not declare:
+
+| Decorator | Pipe | Unknown fields |
+|---|---|---|
+| `@Body()` | global `ValidationPipe({ whitelist: true, transform: true })` (`main.ts`) | silently **stripped** |
+| `@StrictBody()` (`core/strict-validation.pipe.ts`) | `StrictValidationPipe` (`whitelist` + `forbidNonWhitelisted` + `transform` + `validateCustomDecorators`) | **rejected**: `400 VALIDATION_FAILED`, `details` e.g. `["property organizationId should not exist"]` |
+
+- **When to use which.** New owner-scoped and organization handlers use `@StrictBody()`, so a client
+  can never smuggle `organizationId`, `role`, etc. into a body. Existing routes keep `@Body()`:
+  some rely on stripping (register and reset-password send `password_confirmation`, which the DTO
+  does not declare). Do not swap an existing route to `@StrictBody()` without checking its clients.
+- **Validated once.** `@StrictBody()` is a custom parameter decorator; the global pipe skips custom
+  parameters (it has no `validateCustomDecorators`), so only `StrictValidationPipe` validates them.
+  The pipe instance is built once, at decoration time.
+- **Edge cases.** A missing or empty body fails DTO validation (`400`, never `500` or pass-through).
+  A top-level JSON array reaches the pipe and fails validation (`property 0 should not exist`, ...);
+  top-level JSON primitives (`"ok"`, `1`) are already rejected with `400` by Express's strict JSON
+  parser before the pipe runs.
+- **Nested-field caveat.** `forbidNonWhitelisted` only reaches nested objects marked
+  `@ValidateNested()` **and** `@Type(() => Child)`. A nested property validated only as `@IsObject()`
+  (or similar) is never walked: its unknown fields are neither rejected nor stripped. Always use
+  `@ValidateNested()` + `@Type()` for nested DTOs in strict bodies.
+
+Both behaviours are pinned by `core/tests/strict-validation.pipe.spec.ts`.
+
+## Route ids
+
+`core/parse-id.ts`'s `parseId(raw)` parses a raw numeric route parameter strictly: only strings
+matching `^[1-9][0-9]*$` with a value up to `MAX_ID` are accepted. Anything else (`abc`, `007`, `0`,
+`-1`, `1.5`, `1e3`, `+1`, out of range, non-strings) throws `ownerNotFound()`, a plain
+`NotFoundException` (`404 NOT_FOUND`) - **never a `400`**, unlike `ParseIntPipe`. A malformed id is
+therefore indistinguishable from an unknown (or foreign) one, which keeps owner-scoped lookups
+enumeration-safe. The anchored regex is linear (no ReDoS). Pass the raw string (not a
+`ParseIntPipe`-coerced number), so `1e3` is never coerced.
+
+`MAX_ID = 2147483647` matches citadel's signed `int` primary keys (`idColumn()` in
+`database/migrations/helpers.ts`). A derived project moving its ids to `bigint` must raise it.
 
 ## Dependency injection only
 

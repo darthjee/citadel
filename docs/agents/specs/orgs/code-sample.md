@@ -7,13 +7,15 @@ Hub: [Organizations](README.md).
 Index of every source file needed to replicate the organizations feature. The list is split into
 three parts, meant to be copied **in order**:
 
-| Part | File | Files |
-|---|---|---|
-| 1. Backend | [code_sample-backend.md](./code_sample-backend.md) | 67 |
-| 2. Migrations | [code_sample-migrations.md](./code_sample-migrations.md) | 2 |
-| 3. Frontend | [code_sample-frontend.md](./code_sample-frontend.md) | 57 |
+| Part | File | Files | Still in `code_sample/` after #26 |
+|---|---|---|---|
+| 1. Backend | [code-sample-backend.md](./code-sample-backend.md) | 67 | 45 |
+| 2. Migrations | [code-sample-migrations.md](./code-sample-migrations.md) | 2 | 1 |
+| 3. Frontend | [code-sample-frontend.md](./code-sample-frontend.md) | 57 | 57 |
 
-**Total: 126 files plus 3 directories.**
+**Total: 126 files plus 3 directories** (103 files plus 3 directories still under `code_sample/`
+after #26: 4 files were ported into `backend/src/core/`, and 19 no-port copies of files citadel
+already has were deleted; their rows now link to citadel's own file).
 
 The split follows the dependency order, not a preference: the backend compiles without the
 frontend, the migrations need the entities to exist first, and the frontend needs both.
@@ -63,9 +65,9 @@ to update the page, not a sign that the file never existed.
 
 | Step | Copy | Then verify |
 |---|---|---|
-| 1 | [Backend](./code_sample-backend.md) | The project compiles: entities, service, guards and module resolve |
-| 2 | [Migrations](./code_sample-migrations.md) | `auth_users` exists first; the organizations migration then runs clean |
-| 3 | [Frontend](./code_sample-frontend.md) | `npm run build` passes; the specs run with `jsx-loader.mjs` in place |
+| 1 | [Backend](./code-sample-backend.md) | The project compiles: entities, service, guards and module resolve |
+| 2 | [Migrations](./code-sample-migrations.md) | `auth_users` exists first; the organizations migration then runs clean |
+| 3 | [Frontend](./code-sample-frontend.md) | `npm run build` passes; the specs run with `jsx-loader.mjs` in place |
 
 **Do not skip step 2 between the others.** The organizations migration carries a foreign key to
 `auth_users`. Copying the backend without the migrations gives a build that passes and a boot that

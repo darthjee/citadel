@@ -43,6 +43,9 @@ Everything that fails to resolve answers the same body:
 
 The body never names the resource. The four cases are **indistinguishable**.
 
+The non-numeric and out-of-range cases come from the strict id parser (`parseId`, `MAX_ID`),
+documented permanently in [Architecture - Backend: Route ids](../../architecture/backend.md#route-ids).
+
 ### The uniform 403
 
 Only reachable by a **member** whose role is too low.
@@ -74,6 +77,9 @@ Three separate mechanisms, all pointing the same way.
 | **`@StrictBody()`** | Any body field not in the DTO - `role`, `organizationId`, `userId` all answer `400` |
 | **`OrganizationNameDto`** | The DTO itself declares only `name` |
 | **Service logic** | `create` hard-codes `role: 'owner'`; `organizationId` comes only from the URL after the membership check |
+
+`@StrictBody()` itself (strip vs reject, single validation, the nested-field caveat) is documented
+permanently in [Architecture - Backend: Body validation](../../architecture/backend.md#body-validation).
 
 The DTO is a second line of defence, not the only one. Even if a `role` field were added to the DTO
 by mistake, `create` would ignore it.
