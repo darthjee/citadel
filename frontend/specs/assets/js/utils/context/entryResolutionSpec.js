@@ -5,7 +5,9 @@ import {
   trackVisit,
 } from '../../../../../assets/js/utils/context/entryResolution.js';
 import { buildContextStorage } from '../../../../../assets/js/utils/context/ContextStorage.js';
+import OrgListController from '../../../../../assets/js/components/common/ownerContext/controllers/OrgListController.js';
 import { installFakeWindow, uninstallFakeWindow } from '../../../../support/fakeWindow.js';
+import { fetchSequence } from '../../../../support/fetchSequence.js';
 
 const PERSONAL = { kind: 'personal' };
 const ORGS = [{ id: 5, name: 'Acme', role: 'owner' }, { id: 6, name: 'Beta', role: 'user' }];
@@ -139,6 +141,35 @@ describe('entryResolution', () => {
       it('is a no-op without a window', () => {
         expect(runEntryResolution({ userId: 1, orgs: ORGS, orgsError: null }, { storage })).toBeNull();
       });
+    });
+  });
+
+  describe('end to end with the org list load', () => {
+    let originalFetch;
+
+    beforeEach(() => {
+      originalFetch = globalThis.fetch;
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    it('sends no request about a stale remembered id', async () => {
+      const navigate = jasmine.createSpy('navigate');
+      const controller = new OrgListController(() => undefined, {
+        onSessionLoaded: (state) => runEntryResolution(state, { hashProvider: () => '#/', navigate, storage }),
+      });
+
+      storage.rememberOrganization(1, 9);
+      globalThis.fetch = fetchSequence([{ ok: true, status: 200, json: ORGS }]);
+
+      await controller.handleAuthChanged({ detail: { loggedIn: true, userId: 1 } });
+
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch.calls.argsFor(0)[0]).toBe('/orgs.json');
+      expect(navigate).not.toHaveBeenCalled();
+      expect(storage.read(1)).toBeNull();
     });
   });
 
