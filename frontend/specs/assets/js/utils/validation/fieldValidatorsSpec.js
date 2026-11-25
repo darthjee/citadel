@@ -1,6 +1,8 @@
 import {
   EMAIL_PATTERN,
   MAX_ORGANIZATION_NAME_LENGTH,
+  MAX_TEXT_LENGTH,
+  validateRequiredText,
   MIN_PASSWORD_LENGTH,
   validateEmail,
   validateOrganizationName,
@@ -130,6 +132,31 @@ describe('fieldValidators', () => {
 
     it('keys the error under a custom field name', () => {
       expect(validateOrganizationName('', 'orgName')).toEqual({ orgName: 'Name is required' });
+    });
+  });
+
+  describe('validateRequiredText', () => {
+    it('exposes the maximum length', () => {
+      expect(MAX_TEXT_LENGTH).toBe(255);
+    });
+
+    it('accepts a present value', () => {
+      expect(validateRequiredText(' Groceries ', 'name', 'Name')).toEqual({});
+    });
+
+    [undefined, null, '', '   '].forEach((value) => {
+      it(`requires a value (${JSON.stringify(value)})`, () => {
+        expect(validateRequiredText(value, 'name', 'Name')).toEqual({ name: 'Name is required' });
+      });
+    });
+
+    it('accepts exactly the maximum length, in code points', () => {
+      expect(validateRequiredText('😀'.repeat(255), 'description', 'Description')).toEqual({});
+    });
+
+    it('rejects a value longer than the maximum', () => {
+      expect(validateRequiredText('a'.repeat(256), 'description', 'Description'))
+        .toEqual({ description: 'Description must be at most 255 characters' });
     });
   });
 });

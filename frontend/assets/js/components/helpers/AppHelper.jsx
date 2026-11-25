@@ -11,6 +11,10 @@ import MyAccount from '../resources/accounts/pages/MyAccount.jsx';
 import OrganizationNew from '../resources/organizations/pages/OrganizationNew.jsx';
 import OrganizationOverview from '../resources/organizations/pages/OrganizationOverview.jsx';
 import OrganizationEdit from '../resources/organizations/pages/OrganizationEdit.jsx';
+import TodoLists from '../resources/todo/pages/TodoLists.jsx';
+import TodoListNew from '../resources/todo/pages/TodoListNew.jsx';
+import TodoListShow from '../resources/todo/pages/TodoListShow.jsx';
+import TodoListEdit from '../resources/todo/pages/TodoListEdit.jsx';
 import NotFound from '../common/notFound/NotFound.jsx';
 
 const PAGES = new Map([
@@ -24,6 +28,10 @@ const PAGES = new Map([
   ['org-new', <OrganizationNew />],
   ['org-overview', <OrganizationOverview />],
   ['org-edit', <OrganizationEdit />],
+  ['todo-lists', <TodoLists />],
+  ['todo-list-new', <TodoListNew />],
+  ['todo-list-show', <TodoListShow />],
+  ['todo-list-edit', <TodoListEdit />],
   ['not-found', <NotFound />],
   ['home', <Home />],
 ]);

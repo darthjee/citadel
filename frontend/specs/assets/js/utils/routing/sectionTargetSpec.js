@@ -15,6 +15,22 @@ describe('sectionTarget', () => {
     it('is an array', () => {
       expect(Array.isArray(SECTIONS_CONTEXT)).toBeTrue();
     });
+
+    it('registers the todo lists section', () => {
+      expect(SECTIONS_CONTEXT).toContain(['/todo/lists', '/todo/lists']);
+    });
+
+    it('maps a todo page to the todo lists index by default', () => {
+      expect(sectionListPathFor('#/orgs/5/todo/lists/7/edit')).toBe('/todo/lists');
+    });
+
+    it('switches from a Personal todo list to the organization lists', () => {
+      expect(switchTargetFor('#/todo/lists/5')(ORG_5)).toBe('#/orgs/5/todo/lists');
+    });
+
+    it('switches from an organization todo edit page to the Personal lists', () => {
+      expect(switchTargetFor('#/orgs/1/todo/lists/5/edit')(PERSONAL)).toBe('#/todo/lists');
+    });
   });
 
   describe('sectionListPathFor', () => {

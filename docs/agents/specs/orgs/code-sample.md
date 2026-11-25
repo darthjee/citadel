@@ -7,11 +7,11 @@ Hub: [Organizations](README.md).
 Index of every source file needed to replicate the organizations feature. The list is split into
 three parts, meant to be copied **in order**:
 
-| Part | File | Files | Still in `code_sample/` after #26 | After #27 | After #28 | After #29 | After #30 |
-|---|---|---|---|---|---|---|---|
-| 1. Backend | [code-sample-backend.md](./code-sample-backend.md) | 67 | 45 | 25 | 4 | 4 | 4 |
-| 2. Migrations | [code-sample-migrations.md](./code-sample-migrations.md) | 2 | 1 | 1 | 0 | 0 | 0 |
-| 3. Frontend | [code-sample-frontend.md](./code-sample-frontend.md) | 57 | 57 | 57 | 57 | 21 | 0 |
+| Part | File | Files | Still in `code_sample/` after #26 | After #27 | After #28 | After #29 | After #30 | After #31 |
+|---|---|---|---|---|---|---|---|---|
+| 1. Backend | [code-sample-backend.md](./code-sample-backend.md) | 67 | 45 | 25 | 4 | 4 | 4 | 2 |
+| 2. Migrations | [code-sample-migrations.md](./code-sample-migrations.md) | 2 | 1 | 1 | 0 | 0 | 0 | 0 |
+| 3. Frontend | [code-sample-frontend.md](./code-sample-frontend.md) | 57 | 57 | 57 | 57 | 21 | 0 | 0 |
 
 **Total: 126 files plus 3 directories** (103 files plus 3 directories still under `code_sample/`
 after #26: 4 files were ported into `backend/src/core/`, and 19 no-port copies of files citadel
@@ -29,7 +29,10 @@ and switcher, `NotFound.jsx`, `PermissionDenied.jsx` and the five page specs (21
 left on the frontend side. After #30, the **frontend is fully ported** and only the **4 backend
 files** remain: the organization pages, header and switcher, `NotFound.jsx`, `PermissionDenied.jsx`
 and the five page specs were moved into `frontend/` (the sample `Header.jsx`, identical to
-citadel's, was deleted), and `code_sample/frontend/` was removed.
+citadel's, was deleted), and `code_sample/frontend/` was removed. After #31, only **2 backend
+files** remain - `core/cache-class.ts` and `core/cache-policy.interceptor.ts` (#33): the two `bank`
+reference files were ported to the live `todo` example module (`backend/src/todo/tests/`) and
+`code_sample/backend/src/bank/` was removed.
 
 The split follows the dependency order, not a preference: the backend compiles without the
 frontend, the migrations need the entities to exist first, and the frontend needs both.
@@ -113,5 +116,5 @@ Adjust the destination to wherever `orgs/` lives in the target repository.
 | Configuration files | `docker-compose*.yml`, `package.json`, `tsconfig.json`, ESLint config, `vite.config.*` are project-wide, not organizations-specific |
 | `20260824120001-auth-create-users.ts` | Required as a prerequisite for the organizations migration, but it belongs to the users feature. Copy it from the auth module |
 | Other auth entities | `user.entity.ts` is listed in part 1 because the membership references it. Token, session and authorization-request entities are only needed if the replica keeps login |
-| The `bank` module | Only two role-enforcement test files are listed, as a working example of the `@MinOrgRole` matrix. The module itself is a separate feature |
+| The `bank` module | Only two role-enforcement test files were listed, as a working example of the `@MinOrgRole` matrix; #31 ported them to citadel's [Todo module](../../modules/todo.md). The module itself is a separate feature |
 | Form validation utilities | `fieldValidators.js` and `formValidators.js` are used by the organization forms. Add them if form validation is replicated |

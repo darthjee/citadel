@@ -7,6 +7,8 @@ import { Organization } from '../../../auth/entities/organization.entity.js';
 import { PasswordResetToken } from '../../../auth/entities/password-reset-token.entity.js';
 import { RefreshToken } from '../../../auth/entities/refresh-token.entity.js';
 import { User } from '../../../auth/entities/user.entity.js';
+import { TodoItem } from '../../../todo/entities/todo-item.entity.js';
+import { TodoList } from '../../../todo/entities/todo-list.entity.js';
 import { dataSourceOptions } from '../../data-source.js';
 import { AuthCreateUsers20260824120001 } from '../../migrations/20260824120001-auth-create-users.js';
 import { AuthCreateRefreshTokens20260824120002 } from '../../migrations/20260824120002-auth-create-refresh-tokens.js';
@@ -23,6 +25,7 @@ import { AuthAddRefreshTokensRevokedReason20261018120012 } from '../../migration
 import { AuthDropSessions20261018120013 } from '../../migrations/20261018120013-auth-drop-sessions.js';
 import { AuthAddUsersStatus20261019120014 } from '../../migrations/20261019120014-auth-add-users-status.js';
 import { AuthCreateOrganizations20261107120015 } from '../../migrations/20261107120015-auth-create-organizations.js';
+import { TodoCreateListsAndItems20261125120016 } from '../../migrations/20261125120016-todo-create-lists-and-items.js';
 
 type MigrationClass = new () => MigrationInterface;
 type MysqlOptions = MysqlConnectionOptions;
@@ -49,6 +52,7 @@ export const MIGRATIONS: ReadonlyArray<{ file: string; migration: MigrationClass
   { file: '20261018120013-auth-drop-sessions', migration: AuthDropSessions20261018120013 },
   { file: '20261019120014-auth-add-users-status', migration: AuthAddUsersStatus20261019120014 },
   { file: '20261107120015-auth-create-organizations', migration: AuthCreateOrganizations20261107120015 },
+  { file: '20261125120016-todo-create-lists-and-items', migration: TodoCreateListsAndItems20261125120016 },
 ];
 
 /** Every entity the app maps, so repositories resolve against the test database. */
@@ -59,6 +63,8 @@ export const ENTITIES = [
   OrganizationMembership,
   PasswordResetToken,
   RefreshToken,
+  TodoItem,
+  TodoList,
   User,
 ];
 

@@ -38,7 +38,12 @@ export const ROUTES_ORG_ONLY = [
  *
  * @type {Array<Array<string>>}
  */
-export const ROUTES_CONTEXT = [];
+export const ROUTES_CONTEXT = [
+  ['/todo/lists/new', 'todo-list-new'],
+  ['/todo/lists/:id/edit', 'todo-list-edit'],
+  ['/todo/lists/:id', 'todo-list-show'],
+  ['/todo/lists', 'todo-lists'],
+];
 
 /**
  * Section registry for context switches: an ordered `[path prefix, list path]` list of
@@ -49,4 +54,6 @@ export const ROUTES_CONTEXT = [];
  *
  * @type {Array<Array<string>>}
  */
-export const SECTIONS_CONTEXT = [];
+export const SECTIONS_CONTEXT = [
+  ['/todo/lists', '/todo/lists'],
+];

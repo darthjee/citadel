@@ -64,8 +64,9 @@ describe('owner-scoped coverage', () => {
     routes = controllers.flatMap(routesOf);
   });
 
-  // The "discovers owner-scoped routes (> 0)" assertion is restored by #31, once a real
-  // owner-scoped controller exists; until then the KNOWN_CONTROLLERS check above guards the glob.
+  it('discovers owner-scoped routes (> 0)', () => {
+    expect(routes.filter((route) => route.ownerScoped).length).toBeGreaterThan(0);
+  });
 
   it('never takes a plain @Body() on an owner-scoped route', () => {
     const plain = plainBodyRoutes(routes);

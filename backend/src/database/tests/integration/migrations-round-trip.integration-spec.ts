@@ -25,7 +25,7 @@ describe('migrations round trip (MySQL)', () => {
       await ds.undoLastMigration();
     }
     expect(await ds.showMigrations()).toBe(true);
-    expect((await tableNames(ds)).filter((name) => name.startsWith('auth_'))).toEqual([]);
+    expect((await tableNames(ds)).filter((name) => /^(auth|todo)_/.test(name))).toEqual([]);
 
     const rerun = await ds.runMigrations();
     expect(rerun).toHaveLength(MIGRATIONS.length);
@@ -44,5 +44,11 @@ describe('migrations round trip (MySQL)', () => {
       'auth_refresh_tokens',
       'auth_users',
     ]);
+  });
+
+  it('leaves exactly the todo tables after a full run', async () => {
+    await ds.runMigrations();
+
+    expect((await tableNames(ds)).filter((name) => name.startsWith('todo_'))).toEqual(['todo_items', 'todo_lists']);
   });
 });

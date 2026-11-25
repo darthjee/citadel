@@ -53,8 +53,33 @@ describe('HashRouteResolver', () => {
       expect(ROUTES_ORG_ONLY).toEqual([['/', 'org-overview'], ['/edit', 'org-edit']]);
     });
 
-    it('starts with no context-aware routes', () => {
-      expect(ROUTES_CONTEXT).toEqual([]);
+    it('registers the todo module as context-aware routes, static paths first', () => {
+      expect(ROUTES_CONTEXT).toEqual([
+        ['/todo/lists/new', 'todo-list-new'],
+        ['/todo/lists/:id/edit', 'todo-list-edit'],
+        ['/todo/lists/:id', 'todo-list-show'],
+        ['/todo/lists', 'todo-lists'],
+      ]);
+    });
+
+    [
+      ['#/todo/lists', 'todo-lists', PERSONAL],
+      ['#/todo/lists/new', 'todo-list-new', PERSONAL],
+      ['#/todo/lists/7', 'todo-list-show', PERSONAL],
+      ['#/todo/lists/7/edit', 'todo-list-edit', PERSONAL],
+      ['#/orgs/5/todo/lists', 'todo-lists', organization(5)],
+      ['#/orgs/5/todo/lists/new', 'todo-list-new', organization(5)],
+      ['#/orgs/5/todo/lists/7', 'todo-list-show', organization(5)],
+      ['#/orgs/5/todo/lists/7/edit', 'todo-list-edit', organization(5)],
+    ].forEach(([hash, page, context]) => {
+      it(`resolves ${hash} to ${page}`, () => {
+        expect(resolve(hash)).toEqual({ page, context });
+      });
+    });
+
+    it('does not read /todo/lists/new as a list id', () => {
+      expect(resolve('#/orgs/5/todo/lists/new').page).toBe('todo-list-new');
+      expect(resolve('#/todo/lists/new').page).not.toBe('todo-list-show');
     });
 
     it('resolves #/orgs/new to org-new in Personal without reading an org id', () => {

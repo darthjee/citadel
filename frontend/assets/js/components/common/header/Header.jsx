@@ -4,6 +4,8 @@ import HeaderController from './controllers/HeaderController.js';
 import useAuthEffect from './hooks/useAuthEffect.js';
 import AuthSession from '../../../client/AuthSession.js';
 import AwaitingApprovalGate from '../awaitingApproval/AwaitingApprovalGate.jsx';
+import useOwnerContext from '../ownerContext/hooks/useOwnerContext.js';
+import { contextHash } from '../../../utils/context/ownerContext.js';
 
 /**
  * Application header, wrapping the current page's content. Shows a Login link when logged
@@ -14,7 +16,8 @@ import AwaitingApprovalGate from '../awaitingApproval/AwaitingApprovalGate.jsx';
  * local check for admin status, so it is only known once `checkStatus()` resolves. `pending`
  * (a session awaiting admin approval) also starts `false`; while it is set, the nav shows no auth
  * links and the page content is replaced by the Awaiting-approval view
- * ({@link AwaitingApprovalGate}).
+ * ({@link AwaitingApprovalGate}). The To-do link follows the active owner context (Personal
+ * when no owner-context provider is mounted).
  *
  * @param {object} props - Component props.
  * @param {React.ReactNode} [props.children] - Current page content, rendered below the nav bar
@@ -23,6 +26,7 @@ import AwaitingApprovalGate from '../awaitingApproval/AwaitingApprovalGate.jsx';
  */
 export default function Header({ children }) {
   const controller = useMemo(() => new HeaderController(), []);
+  const { context } = useOwnerContext();
   const [loggedIn, setLoggedIn] = useState(AuthSession.isLoggedIn());
   const [isAdmin, setIsAdmin] = useState(false);
   const [pending, setPending] = useState(false);
@@ -36,10 +40,11 @@ export default function Header({ children }) {
   }, [controller]);
 
   const handleOpenLogin = (mode) => controller.openLoginModal(mode);
+  const todoHref = contextHash(context, '/todo/lists');
 
   return (
     <>
-      {HeaderHelper.render(loggedIn, isAdmin, handleLogout, handleOpenLogin, pending)}
+      {HeaderHelper.render(loggedIn, isAdmin, handleLogout, handleOpenLogin, pending, todoHref)}
       <AwaitingApprovalGate pending={pending} onLogout={handleLogout}>
         {children}
       </AwaitingApprovalGate>

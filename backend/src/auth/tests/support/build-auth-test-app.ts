@@ -1,4 +1,4 @@
-import { INestApplication, Type, ValidationPipe } from '@nestjs/common';
+import { DynamicModule, INestApplication, Type, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -38,6 +38,8 @@ export interface BuildAuthTestAppOptions {
   registerDefaultUser?: boolean;
   configOverrides?: Record<string, string>;
   controllers?: Type<unknown>[];
+  imports?: Array<Type<unknown> | DynamicModule>;
+  repoOverrides?: Array<[entity: Type<unknown>, repo: unknown]>;
 }
 
 export interface BuildAuthTestAppResult {
@@ -87,12 +89,17 @@ export interface BuildAuthTestAppResult {
 //   consumer only ever calls `.get(key)`). When empty, the real `ConfigService`
 //   is kept.
 // - `controllers` registers extra (throwaway) controllers on the test module.
+// - `imports` imports extra feature modules (e.g. `TodoModule`) next to `AuthModule`.
+// - `repoOverrides` overrides `getRepositoryToken(entity)` with the given (in-memory) repo, for
+//   the extra modules' entities.
 export async function buildAuthTestApp({
   adminGuard = false,
   ownerContextGuard = false,
   registerDefaultUser = true,
   configOverrides = {},
   controllers = [],
+  imports = [],
+  repoOverrides = [],
 }: BuildAuthTestAppOptions = {}): Promise<BuildAuthTestAppResult> {
   const userRepo = createInMemoryRepo<User>();
   const refreshTokenRepo = createInMemoryRepo<RefreshToken>();
@@ -108,6 +115,7 @@ export async function buildAuthTestApp({
       JwtModule.register({ global: true, secret: 'test-secret', signOptions: { expiresIn: '15m' } }),
       LoggingModule,
       AuthModule,
+      ...imports,
     ],
     controllers,
     providers: [
@@ -136,6 +144,10 @@ export async function buildAuthTestApp({
     .useValue(membershipRepo)
     .overrideProvider(SESSION_LOOKUP)
     .useValue(new InMemorySessionLookup(userRepo.rows, refreshTokenRepo.rows));
+
+  repoOverrides.forEach(([entity, repo]) => {
+    moduleBuilder.overrideProvider(getRepositoryToken(entity)).useValue(repo);
+  });
 
   if (Object.keys(configOverrides).length > 0) {
     moduleBuilder.overrideProvider(ConfigService).useValue({ get: (key: string) => configOverrides[key] });

@@ -36,8 +36,8 @@ export function ownerRole(ctx: OwnerContext): OrgRole {
  * TypeORM `where` fragment selecting the records owned by an {@link OwnerScope}.
  */
 export type OwnerWhere =
-  | { userId: number; organizationId: FindOperator<unknown> }
-  | { userId: FindOperator<unknown>; organizationId: number };
+  | { userId: number; organizationId: FindOperator<number> }
+  | { userId: FindOperator<number>; organizationId: number };
 
 /**
  * Builds the owner filter every user-or-organization-owned query goes through.
