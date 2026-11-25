@@ -2,6 +2,8 @@ import { DataSource, MigrationInterface } from 'typeorm';
 import type { MysqlConnectionOptions } from 'typeorm/driver/mysql/MysqlConnectionOptions.js';
 import { AccountEditLockout } from '../../../auth/entities/account-edit-lockout.entity.js';
 import { AuthorizationRequest } from '../../../auth/entities/authorization-request.entity.js';
+import { OrganizationMembership } from '../../../auth/entities/organization-membership.entity.js';
+import { Organization } from '../../../auth/entities/organization.entity.js';
 import { PasswordResetToken } from '../../../auth/entities/password-reset-token.entity.js';
 import { RefreshToken } from '../../../auth/entities/refresh-token.entity.js';
 import { User } from '../../../auth/entities/user.entity.js';
@@ -20,6 +22,7 @@ import { AuthAddRefreshTokensSession20261018120011 } from '../../migrations/2026
 import { AuthAddRefreshTokensRevokedReason20261018120012 } from '../../migrations/20261018120012-auth-add-refresh-tokens-revoked-reason.js';
 import { AuthDropSessions20261018120013 } from '../../migrations/20261018120013-auth-drop-sessions.js';
 import { AuthAddUsersStatus20261019120014 } from '../../migrations/20261019120014-auth-add-users-status.js';
+import { AuthCreateOrganizations20261107120015 } from '../../migrations/20261107120015-auth-create-organizations.js';
 
 type MigrationClass = new () => MigrationInterface;
 type MysqlOptions = MysqlConnectionOptions;
@@ -45,10 +48,19 @@ export const MIGRATIONS: ReadonlyArray<{ file: string; migration: MigrationClass
   { file: '20261018120012-auth-add-refresh-tokens-revoked-reason', migration: AuthAddRefreshTokensRevokedReason20261018120012 },
   { file: '20261018120013-auth-drop-sessions', migration: AuthDropSessions20261018120013 },
   { file: '20261019120014-auth-add-users-status', migration: AuthAddUsersStatus20261019120014 },
+  { file: '20261107120015-auth-create-organizations', migration: AuthCreateOrganizations20261107120015 },
 ];
 
 /** Every entity the app maps, so repositories resolve against the test database. */
-export const ENTITIES = [AccountEditLockout, AuthorizationRequest, PasswordResetToken, RefreshToken, User];
+export const ENTITIES = [
+  AccountEditLockout,
+  AuthorizationRequest,
+  Organization,
+  OrganizationMembership,
+  PasswordResetToken,
+  RefreshToken,
+  User,
+];
 
 /**
  * Builds the integration-suite connection options: the app's `dataSourceOptions`, pointed at the

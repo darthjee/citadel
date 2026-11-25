@@ -4,7 +4,7 @@ import { OrgRole } from '../../core/org-role.js';
 /**
  * A member's role in an organization — an alias of `core`'s {@link OrgRole}.
  * Roles are enforced (see `@MinOrgRole` and `hasMinRole`) in the order
- * `user` < `admin` < `owner`, and are distinct from Ward's global `User.isAdmin`.
+ * `user` < `admin` < `owner`, and are distinct from the global `User.isAdmin`.
  * The organization's creator is its `owner`.
  */
 export const MembershipRole = OrgRole;
