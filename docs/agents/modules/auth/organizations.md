@@ -85,6 +85,84 @@ owner-scoped (it *is* the organization). `:orgId` is read as a raw string and pa
   `/orgs`, whose recursive clear would wipe every organization's tree). The proxy does not consume
   `X-Cache-Invalidate` yet (#33). Navi warms nothing: no organization route is public.
 
+## Frontend
+
+The frontend foundation (#29) resolves the owner context from the URL, remembers it per user,
+gates controls by role and wires it to React. There are no organization pages, routes or context
+switcher yet (#30); modules register their context-aware routes in #31. Base:
+`frontend/assets/js/`.
+
+### Routing (`utils/routing/`)
+
+`routes.js` holds three ordered `[path, page key]` tables, matched top-to-bottom, plus a section
+registry:
+
+| Table | Matched against | Current rows |
+|---|---|---|
+| `ROUTES_PERSONAL` | the full path | citadel's pages (`/recover-password`, admin, account, `/` last) |
+| `ROUTES_ORG_ONLY` | the rest after `/orgs/<id>` | none yet (#30 adds overview and edit) |
+| `ROUTES_CONTEXT` | the path as Personal, or the rest after `/orgs/<id>` | none yet (modules, #31) |
+| `SECTIONS_CONTEXT` | `[prefix, list path]` for context switches (`sectionTarget.js`) | none yet |
+
+`HashRouteResolver.resolve()` returns `{ page, context }`. Lookup order: Personal-only routes →
+`/orgs/<seg>` prefix → context-aware routes as Personal → `home`. Under a prefix, a **malformed
+id** (anything outside `^[1-9][0-9]*$`, or above `2147483647` — the backend's `parseOrgId()` rule:
+`0`, `007`, `abc`, `1e3`, `2147483648`) resolves to `{ page: 'not-found', context: PERSONAL }`
+**without issuing any request**; a valid id tries organization-only routes, then context-aware
+routes, with `{ kind: 'organization', orgId }` as context. `not-found` falls back to the home page
+until #30 adds `NotFound`. `Router.extractContextParams(path, hash)` strips a valid `/orgs/<id>`
+prefix so a page reads its params the same way in both contexts; `hashQuery.js` reads and builds
+the `?…` part of a hash.
+
+### Owner context (`utils/context/`)
+
+`ownerContext.js`: `PERSONAL`, `organizationContext(orgId)`, `parseOrgId(segment)`,
+`contextPath(context, '/x.json')` (API path, `/orgs/<id>/x.json` in an organization),
+`contextHash(context, '/x')` (hash link), `landingFor(context)`, `isSameContext`, `hashPath`,
+`splitOrgPrefix`, `stripContextPrefix`. **API clients take the context as an argument**, never
+from module-level state: an ambient "current organization" would reopen the leak the backend guard
+closes.
+
+**Remembered context** (`ContextStorage.js`): `localStorage` key
+`citadel_placeholder.context.<userId>`, storing the **organization id only** (or Personal); every
+access is wrapped in `try`/`catch`, and it is **not** cleared on logout. `entryResolution.js`
+applies it **at the entry point only** (an empty or root hash, after the session's org list
+loaded) and **forgets a stale id** — one not in the loaded list — without any request about it;
+`trackVisit` remembers the context of each visited context-aware page. The `userId` comes from the
+`status.json` answer, forwarded by `AuthStatus` as `AuthEvents.emit(loggedIn, isAdmin, pending,
+userId)` (event detail `{ loggedIn, isAdmin, pending, userId }`; `userId` is `null` unless logged
+in).
+
+### Permissions (`utils/permissions/orgPermissions.js`)
+
+`can(role, action)` mirrors the backend `@MinOrgRole` matrix: `ACTIONS.WRITE` needs `user`;
+`RENAME_ORGANIZATION` and `DELETE` need `admin` (`owner` ranks above both). It **fails closed**: a
+`null`/unknown role (e.g. still loading) or an unknown action answers `false`, so the UI renders no
+control rather than an optimistic one.
+
+### Provider, hooks and controllers (`components/common/ownerContext/`)
+
+`App.jsx` keeps the resolved route in state (`AppController.getRoute()`, updated on
+`hashchange`) and mounts `OwnerContextProvider route={route}` around the page. The provider value
+(`useOwnerContext()`) carries `context`, `page`, `userId`, `orgs`, `orgsLoaded`, `orgsError`,
+`refreshOrgs`, `role` and `refreshRole`:
+
+- **`role`** is `owner` in Personal, the listed organization's `role` otherwise, and `null` while
+  the list loads or when the organization is not listed. There is no separate role request:
+  `refreshRole` is the org-list refetch. `useCan(action)` is `can(role, action)` for the active
+  context.
+- **One org-list load per session** (`OrgListController`): `GET /orgs.json`
+  (`client/OrganizationsClient.js`) on the first logged-in `AuthEvents` event of a user, never on
+  navigation; a logout clears the list; a failed load sets `orgsError`; late answers from a
+  previous session are ignored. Entry resolution runs after each session's first load.
+- **Role refresh on `403`**: `ApiClient` emits `permission:forbidden`
+  (`client/PermissionEvents.js`) on every `403` before throwing; `forbiddenRefreshEffect`
+  refetches the list once per burst (an in-flight flag drops events arriving during a refresh).
+
+`OrganizationsClient` covers list, create (`POST /orgs.json { name }`), show
+(`GET /orgs/:orgId.json`) and rename (`PATCH /orgs/:orgId.json { name }`); callers pass the `orgId`
+of the validated active context.
+
 ## Testing
 
 - Unit: `auth/tests/organization.service.spec.ts`, `organization-name.dto.spec.ts`,
@@ -101,3 +179,7 @@ owner-scoped (it *is* the organization). `:orgId` is read as a raw string and pa
 - Coverage: `OrganizationController` is in `KNOWN_CONTROLLERS`
   (`core/tests/support/route-discovery.ts`), so the cache-policy and cache-invalidation coverage
   specs check it.
+- Frontend (Jasmine, `frontend/specs/`): `utils/routing/` (resolver order, malformed-id guard,
+  `extractContextParams`, sections, hash query), `utils/context/`, `utils/permissions/`,
+  `client/OrganizationsClientSpec.js`, `client/PermissionEventsSpec.js` and
+  `components/common/ownerContext/`.

@@ -6,19 +6,39 @@ Previous: [Migrations](./code-sample-migrations.md).
 **57 files plus 1 directory.** Every path below was read from the repository tree on branch
 `main`.
 
+**Status after #29:** sections 1-5 (routing, context, permissions, provider/hooks/controllers,
+client layer) and their specs (routing, context, permissions and `specs/support/jsx-loader.mjs`)
+were moved into `frontend/` (rows marked "ported in #29"; their links now point at citadel's own
+file) and their copies deleted, so **21 files remain** for #30: the organizations pages, the header
+and switcher, `NotFound.jsx`, `PermissionDenied.jsx` and the five page specs. Rows marked "already in
+citadel, no port" were identical to citadel's file. Adaptations made while porting:
+
+- `routes.js` keeps citadel's personal routes only (no `/orgs/new` yet, #30); `ROUTES_ORG_ONLY`,
+  `ROUTES_CONTEXT` and `SECTIONS_CONTEXT` start empty (#30 adds `org-overview`/`org-edit`, #31 the
+  example module). `HashRouteResolver` also accepts an `orgOnlyRoutes` override for specs.
+- `ContextStorage` uses the `citadel_placeholder.context.<userId>` key.
+- `orgPermissions` keeps `WRITE`, `RENAME_ORGANIZATION` and `DELETE` only (the `bank` actions are
+  dropped).
+- `ApiClient`, `AuthEvents`, `AuthStatus` were reconciled with citadel's versions (citadel's JSDoc
+  kept, the sample's behaviour taken: `getJson`, no body option on bodiless requests, the `403`
+  event, `userId`); `ApiError`, `isSessionExpired` and `AuthSession` (key
+  `citadel_placeholder_refresh_token`) keep citadel's file.
+- The specs for the client layer and for the provider, hooks and controllers are new in citadel
+  (the sample has none).
+
 ## What this part covers
 
-| Group | Files |
-|---|---|
-| Routing | 7 |
-| Context | 3 |
-| Permissions | 1 |
-| Provider, hooks, controllers | 5 |
-| Client layer | 9 |
-| Organizations pages | 10 |
-| Header and switcher | 4 |
-| Shared pieces | 2 |
-| Specs | 16 |
+| Group | Files | Still in `code_sample/` after #29 |
+|---|---|---|
+| Routing | 7 | 0 |
+| Context | 3 | 0 |
+| Permissions | 1 | 0 |
+| Provider, hooks, controllers | 5 | 0 |
+| Client layer | 9 | 0 |
+| Organizations pages | 10 | 10 |
+| Header and switcher | 4 | 4 |
+| Shared pieces | 2 | 2 |
+| Specs | 16 | 5 |
 
 The order follows the dependency chain: routing decides the context, the context layer builds the
 paths, permissions decide what renders, then the provider wires it to React, the client makes the
@@ -30,13 +50,13 @@ Base: `frontend/assets/js/utils/routing/`.
 
 | File | Role |
 |---|---|
-| [routes.js](./code_sample/frontend/assets/js/utils/routing/routes.js) | `ROUTES_PERSONAL`, `ROUTES_ORG_ONLY`, `ROUTES_CONTEXT` and `SECTIONS_CONTEXT` |
-| [HashRouteResolver.js](./code_sample/frontend/assets/js/utils/routing/HashRouteResolver.js) | `HashRouteResolver.resolve()` - returns `{ page, context }` |
-| [Router.js](./code_sample/frontend/assets/js/utils/routing/Router.js) | `extractContextParams()` and navigation |
-| [Route.js](./code_sample/frontend/assets/js/utils/routing/Route.js) | The `Route` type - pattern matching and params |
-| [sectionTarget.js](./code_sample/frontend/assets/js/utils/routing/sectionTarget.js) | `switchTargetFor()` - where a context switch lands |
-| [hashQuery.js](./code_sample/frontend/assets/js/utils/routing/hashQuery.js) | `hashQuery` / `withHashQuery` for the `?...` part of the hash |
-| [redirects.js](./code_sample/frontend/assets/js/utils/routing/redirects.js) | Route redirects - imported by the router |
+| [routes.js](../../../../frontend/assets/js/utils/routing/routes.js) | `ROUTES_PERSONAL`, `ROUTES_ORG_ONLY`, `ROUTES_CONTEXT` and `SECTIONS_CONTEXT` - **ported in #29** to `frontend/assets/js/utils/routing/routes.js` |
+| [HashRouteResolver.js](../../../../frontend/assets/js/utils/routing/HashRouteResolver.js) | `HashRouteResolver.resolve()` - returns `{ page, context }` - **ported in #29** to `frontend/assets/js/utils/routing/HashRouteResolver.js` |
+| [Router.js](../../../../frontend/assets/js/utils/routing/Router.js) | `extractContextParams()` and navigation - **ported in #29** to `frontend/assets/js/utils/routing/Router.js` |
+| [Route.js](../../../../frontend/assets/js/utils/routing/Route.js) | The `Route` type - pattern matching and params - **already in citadel, no port** |
+| [sectionTarget.js](../../../../frontend/assets/js/utils/routing/sectionTarget.js) | `switchTargetFor()` - where a context switch lands - **ported in #29** to `frontend/assets/js/utils/routing/sectionTarget.js` |
+| [hashQuery.js](../../../../frontend/assets/js/utils/routing/hashQuery.js) | `hashQuery` / `withHashQuery` for the `?...` part of the hash - **ported in #29** to `frontend/assets/js/utils/routing/hashQuery.js` |
+| [redirects.js](../../../../frontend/assets/js/utils/routing/redirects.js) | Route redirects - imported by the router - **already in citadel, no port** |
 
 `HashRouteResolver.js` is where the malformed-id guard lives: a segment outside `^[1-9][0-9]*$`, or
 above `2147483647`, resolves to `not-found` **without issuing a request**. That is the client mirror
@@ -51,9 +71,9 @@ Base: `frontend/assets/js/utils/context/`.
 
 | File | Role |
 |---|---|
-| [ownerContext.js](./code_sample/frontend/assets/js/utils/context/ownerContext.js) | `contextPath()`, `contextHash()`, `landingFor()` |
-| [ContextStorage.js](./code_sample/frontend/assets/js/utils/context/ContextStorage.js) | The remembered context under `ward.context.<userId>` |
-| [entryResolution.js](./code_sample/frontend/assets/js/utils/context/entryResolution.js) | Applies the remembered context at the entry point |
+| [ownerContext.js](../../../../frontend/assets/js/utils/context/ownerContext.js) | `contextPath()`, `contextHash()`, `landingFor()` - **ported in #29** to `frontend/assets/js/utils/context/ownerContext.js` |
+| [ContextStorage.js](../../../../frontend/assets/js/utils/context/ContextStorage.js) | The remembered context under `citadel_placeholder.context.<userId>` (ward used `ward.context.<userId>`) - **ported in #29** to `frontend/assets/js/utils/context/ContextStorage.js` |
+| [entryResolution.js](../../../../frontend/assets/js/utils/context/entryResolution.js) | Applies the remembered context at the entry point - **ported in #29** to `frontend/assets/js/utils/context/entryResolution.js` |
 
 `contextPath(context, '/x.json')` builds API paths and `contextHash(context, '/x')` builds hash
 links. **API clients take the context as an argument** - never from global state. A client reading a
@@ -68,10 +88,10 @@ loaded list.
 
 | File | Role |
 |---|---|
-| [frontend/assets/js/utils/permissions/orgPermissions.js](./code_sample/frontend/assets/js/utils/permissions/orgPermissions.js) | `ROLES`, `ACTIONS`, `can(role, action)` - mirrors the backend matrix and **fails closed** |
+| [frontend/assets/js/utils/permissions/orgPermissions.js](../../../../frontend/assets/js/utils/permissions/orgPermissions.js) | `ROLES`, `ACTIONS`, `can(role, action)` - mirrors the backend matrix and **fails closed** - **ported in #29** to `frontend/assets/js/utils/permissions/orgPermissions.js` |
 
-Actions: `WRITE` (`user`), `UNDO_PAYMENT`, `EDIT_PAYMENT_TRANSACTION`, `MANAGE_ACCOUNTS`,
-`RENAME_ORGANIZATION`, `DELETE` (all `admin`).
+Actions: `WRITE` (`user`), `RENAME_ORGANIZATION`, `DELETE` (both `admin`). The sample's `bank`
+actions (`UNDO_PAYMENT`, `EDIT_PAYMENT_TRANSACTION`, `MANAGE_ACCOUNTS`) were not ported.
 
 `can()` answering `false` for a `null` or unknown role is the reason the UI renders nothing while
 the role is still loading, instead of optimistically showing controls.
@@ -82,11 +102,11 @@ Base: `frontend/assets/js/components/common/ownerContext/`.
 
 | File | Role |
 |---|---|
-| [OwnerContextProvider.jsx](./code_sample/frontend/assets/js/components/common/ownerContext/OwnerContextProvider.jsx) | The provider; `buildOwnerContextValue` adds `role` and `refreshRole` |
-| [hooks/useOwnerContext.js](./code_sample/frontend/assets/js/components/common/ownerContext/hooks/useOwnerContext.js) | Reads the active context |
-| [hooks/useCan.js](./code_sample/frontend/assets/js/components/common/ownerContext/hooks/useCan.js) | `useCan(action)` for the active context |
-| [controllers/OrgListController.js](./code_sample/frontend/assets/js/components/common/ownerContext/controllers/OrgListController.js) | Loads `GET /orgs.json` once per session; exposes `refreshOrgs` |
-| [controllers/forbiddenRefreshEffect.js](./code_sample/frontend/assets/js/components/common/ownerContext/controllers/forbiddenRefreshEffect.js) | Refreshes the role on a `403`, collapsing a burst into one refresh |
+| [OwnerContextProvider.jsx](../../../../frontend/assets/js/components/common/ownerContext/OwnerContextProvider.jsx) | The provider; `buildOwnerContextValue` adds `role` and `refreshRole` - **ported in #29** to `frontend/assets/js/components/common/ownerContext/OwnerContextProvider.jsx` |
+| [hooks/useOwnerContext.js](../../../../frontend/assets/js/components/common/ownerContext/hooks/useOwnerContext.js) | Reads the active context - **ported in #29** to `frontend/assets/js/components/common/ownerContext/hooks/useOwnerContext.js` |
+| [hooks/useCan.js](../../../../frontend/assets/js/components/common/ownerContext/hooks/useCan.js) | `useCan(action)` for the active context - **ported in #29** to `frontend/assets/js/components/common/ownerContext/hooks/useCan.js` |
+| [controllers/OrgListController.js](../../../../frontend/assets/js/components/common/ownerContext/controllers/OrgListController.js) | Loads `GET /orgs.json` once per session; exposes `refreshOrgs` - **ported in #29** to `frontend/assets/js/components/common/ownerContext/controllers/OrgListController.js` |
+| [controllers/forbiddenRefreshEffect.js](../../../../frontend/assets/js/components/common/ownerContext/controllers/forbiddenRefreshEffect.js) | Refreshes the role on a `403`, collapsing a burst into one refresh - **ported in #29** to `frontend/assets/js/components/common/ownerContext/controllers/forbiddenRefreshEffect.js` |
 
 `role` is **`owner` in Personal**, the active organization's role from the org list otherwise, and
 `null` while loading or when the organization is not listed. There is **no separate role request** -
@@ -101,15 +121,15 @@ Base: `frontend/assets/js/client/`.
 
 | File | Role |
 |---|---|
-| [OrganizationsClient.js](./code_sample/frontend/assets/js/client/OrganizationsClient.js) | The four organization calls: list, create, read, rename |
-| [ApiClient.js](./code_sample/frontend/assets/js/client/ApiClient.js) | The HTTP layer; emits `permission:forbidden` on any `403` **before** throwing |
-| [ApiError.js](./code_sample/frontend/assets/js/client/ApiError.js) | The error type built from the backend's standard body |
-| [PermissionEvents.js](./code_sample/frontend/assets/js/client/PermissionEvents.js) | `emitForbidden()`, `onForbidden()` - the `permission:forbidden` window event |
-| [AuthSession.js](./code_sample/frontend/assets/js/client/AuthSession.js) | Session state the provider depends on |
-| [AuthStatus.js](./code_sample/frontend/assets/js/client/AuthStatus.js) | The `status.json` check that drives the pending gate |
-| [AuthEvents.js](./code_sample/frontend/assets/js/client/AuthEvents.js) | Auth event bus - login and logout trigger the org list load and clear |
-| [isSessionExpired.js](./code_sample/frontend/assets/js/client/isSessionExpired.js) | The `401` session-expired path |
-| [pickDefined.js](./code_sample/frontend/assets/js/client/pickDefined.js) | Drops `undefined` keys from request bodies - used when building the `{ name }` payload |
+| [OrganizationsClient.js](../../../../frontend/assets/js/client/OrganizationsClient.js) | The four organization calls: list, create, read, rename - **ported in #29** to `frontend/assets/js/client/OrganizationsClient.js` |
+| [ApiClient.js](../../../../frontend/assets/js/client/ApiClient.js) | The HTTP layer; emits `permission:forbidden` on any `403` **before** throwing - **ported in #29** to `frontend/assets/js/client/ApiClient.js` |
+| [ApiError.js](../../../../frontend/assets/js/client/ApiError.js) | The error type built from the backend's standard body - **ported in #29** to `frontend/assets/js/client/ApiError.js` |
+| [PermissionEvents.js](../../../../frontend/assets/js/client/PermissionEvents.js) | `emitForbidden()`, `onForbidden()` - the `permission:forbidden` window event - **ported in #29** to `frontend/assets/js/client/PermissionEvents.js` |
+| [AuthSession.js](../../../../frontend/assets/js/client/AuthSession.js) | Session state the provider depends on - **ported in #29** to `frontend/assets/js/client/AuthSession.js` |
+| [AuthStatus.js](../../../../frontend/assets/js/client/AuthStatus.js) | The `status.json` check that drives the pending gate - **ported in #29** to `frontend/assets/js/client/AuthStatus.js` |
+| [AuthEvents.js](../../../../frontend/assets/js/client/AuthEvents.js) | Auth event bus - login and logout trigger the org list load and clear - **ported in #29** to `frontend/assets/js/client/AuthEvents.js` |
+| [isSessionExpired.js](../../../../frontend/assets/js/client/isSessionExpired.js) | The `401` session-expired path - **ported in #29** to `frontend/assets/js/client/isSessionExpired.js` |
+| [pickDefined.js](../../../../frontend/assets/js/client/pickDefined.js) | Drops `undefined` keys from request bodies - used when building the `{ name }` payload - **already in citadel, no port** |
 
 `OrganizationsClient.js` exists and is the file that knows the four paths. `ApiClient.js` is the
 only place that turns a `403` into a role refresh, which is why every page benefits from it.
@@ -175,22 +195,22 @@ id is hit.
 
 | File | Covers |
 |---|---|
-| [frontend/specs/support/jsx-loader.mjs](./code_sample/frontend/specs/support/jsx-loader.mjs) | The ESM loader every frontend spec needs - without it none runs |
+| [frontend/specs/support/jsx-loader.mjs](../../../../frontend/specs/support/jsx-loader.mjs) | The ESM loader every frontend spec needs - without it none runs - **already in citadel, no port** |
 | [specs/assets/js/components/resources/organizations/pages/controllers/OrganizationNewControllerSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationNewControllerSpec.js) | The create controller |
 | [specs/assets/js/components/resources/organizations/pages/controllers/OrganizationEditControllerSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationEditControllerSpec.js) | The rename controller |
 | [specs/assets/js/components/resources/organizations/pages/controllers/OrganizationLoaderSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationLoaderSpec.js) | The overview loader |
 | [specs/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelperSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelperSpec.js) | The form helper |
 | [specs/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelperSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelperSpec.js) | The overview helper |
-| [specs/assets/js/utils/routing/HashRouteResolverSpec.js](./code_sample/frontend/specs/assets/js/utils/routing/HashRouteResolverSpec.js) | Resolution order, `/orgs/<seg>` stripping, the `2147483647` bound |
-| [specs/assets/js/utils/routing/RouterSpec.js](./code_sample/frontend/specs/assets/js/utils/routing/RouterSpec.js) | `extractContextParams()` |
-| [specs/assets/js/utils/routing/RouteSpec.js](./code_sample/frontend/specs/assets/js/utils/routing/RouteSpec.js) | The `Route` type |
-| [specs/assets/js/utils/routing/sectionTargetSpec.js](./code_sample/frontend/specs/assets/js/utils/routing/sectionTargetSpec.js) | Segment-boundary matching, query string dropped |
-| [specs/assets/js/utils/routing/hashQuerySpec.js](./code_sample/frontend/specs/assets/js/utils/routing/hashQuerySpec.js) | Hash query read and write |
-| [specs/assets/js/utils/routing/redirectsSpec.js](./code_sample/frontend/specs/assets/js/utils/routing/redirectsSpec.js) | Redirects |
-| [specs/assets/js/utils/context/ContextStorageSpec.js](./code_sample/frontend/specs/assets/js/utils/context/ContextStorageSpec.js) | Key `ward.context.<userId>`, org id only, `try`/`catch` fallback |
-| [specs/assets/js/utils/context/entryResolutionSpec.js](./code_sample/frontend/specs/assets/js/utils/context/entryResolutionSpec.js) | Entry point only, stale id forgotten |
-| [specs/assets/js/utils/context/ownerContextSpec.js](./code_sample/frontend/specs/assets/js/utils/context/ownerContextSpec.js) | `contextPath()`, `contextHash()`, `landingFor()` |
-| [specs/assets/js/utils/permissions/orgPermissionsSpec.js](./code_sample/frontend/specs/assets/js/utils/permissions/orgPermissionsSpec.js) | `can()` failing closed |
+| [specs/assets/js/utils/routing/HashRouteResolverSpec.js](../../../../frontend/specs/assets/js/utils/routing/HashRouteResolverSpec.js) | Resolution order, `/orgs/<seg>` stripping, the `2147483647` bound - **ported in #29** to `frontend/specs/assets/js/utils/routing/HashRouteResolverSpec.js` |
+| [specs/assets/js/utils/routing/RouterSpec.js](../../../../frontend/specs/assets/js/utils/routing/RouterSpec.js) | `extractContextParams()` - **ported in #29** to `frontend/specs/assets/js/utils/routing/RouterSpec.js` |
+| [specs/assets/js/utils/routing/RouteSpec.js](../../../../frontend/specs/assets/js/utils/routing/RouteSpec.js) | The `Route` type - **already in citadel, no port** |
+| [specs/assets/js/utils/routing/sectionTargetSpec.js](../../../../frontend/specs/assets/js/utils/routing/sectionTargetSpec.js) | Segment-boundary matching, query string dropped - **ported in #29** to `frontend/specs/assets/js/utils/routing/sectionTargetSpec.js` |
+| [specs/assets/js/utils/routing/hashQuerySpec.js](../../../../frontend/specs/assets/js/utils/routing/hashQuerySpec.js) | Hash query read and write - **ported in #29** to `frontend/specs/assets/js/utils/routing/hashQuerySpec.js` |
+| [specs/assets/js/utils/routing/redirectsSpec.js](../../../../frontend/specs/assets/js/utils/routing/redirectsSpec.js) | Redirects - **already in citadel, no port** |
+| [specs/assets/js/utils/context/ContextStorageSpec.js](../../../../frontend/specs/assets/js/utils/context/ContextStorageSpec.js) | Key `citadel_placeholder.context.<userId>`, org id only, `try`/`catch` fallback - **ported in #29** to `frontend/specs/assets/js/utils/context/ContextStorageSpec.js` |
+| [specs/assets/js/utils/context/entryResolutionSpec.js](../../../../frontend/specs/assets/js/utils/context/entryResolutionSpec.js) | Entry point only, stale id forgotten - **ported in #29** to `frontend/specs/assets/js/utils/context/entryResolutionSpec.js` |
+| [specs/assets/js/utils/context/ownerContextSpec.js](../../../../frontend/specs/assets/js/utils/context/ownerContextSpec.js) | `contextPath()`, `contextHash()`, `landingFor()` - **ported in #29** to `frontend/specs/assets/js/utils/context/ownerContextSpec.js` |
+| [specs/assets/js/utils/permissions/orgPermissionsSpec.js](../../../../frontend/specs/assets/js/utils/permissions/orgPermissionsSpec.js) | `can()` failing closed - **ported in #29** to `frontend/specs/assets/js/utils/permissions/orgPermissionsSpec.js` |
 
 Full paths are spelled out in every link above. Copy the specs directory tree whole if that is
 easier than file by file.
@@ -223,15 +243,15 @@ The remaining 19 of the 57 are the 16 specs, plus `redirects.js`, `isSessionExpi
 
 | Group | Files | Done |
 |---|---|---|
-| Routing | 7 | |
-| Context | 3 | |
-| Permissions | 1 | |
-| Provider, hooks, controllers | 5 | |
-| Client layer | 9 | |
+| Routing | 7 | #29 |
+| Context | 3 | #29 |
+| Permissions | 1 | #29 |
+| Provider, hooks, controllers | 5 | #29 |
+| Client layer | 9 | #29 |
 | Pages | 10 | |
 | Header and switcher | 4 | |
 | Shared pieces | 2 | |
-| Specs | 16 | |
+| Specs | 16 | 11 in #29; 5 page specs left for #30 |
 
 ## Not in this part
 
