@@ -88,9 +88,9 @@ owner-scoped (it *is* the organization). `:orgId` is read as a raw string and pa
 ## Frontend
 
 The frontend foundation (#29) resolves the owner context from the URL, remembers it per user,
-gates controls by role and wires it to React. There are no organization pages, routes or context
-switcher yet (#30); modules register their context-aware routes in #31. Base:
-`frontend/assets/js/`.
+gates controls by role and wires it to React. On top of it (#30) sit the organization pages, the
+header context switcher, the shared Not-found and permission-denied views and the context-keyed
+remount. Modules register their context-aware routes in #31. Base: `frontend/assets/js/`.
 
 ### Routing (`utils/routing/`)
 
@@ -99,8 +99,8 @@ registry:
 
 | Table | Matched against | Current rows |
 |---|---|---|
-| `ROUTES_PERSONAL` | the full path | citadel's pages (`/recover-password`, admin, account, `/` last) |
-| `ROUTES_ORG_ONLY` | the rest after `/orgs/<id>` | none yet (#30 adds overview and edit) |
+| `ROUTES_PERSONAL` | the full path | `/orgs/new` first (so it is never read as an id), citadel's pages (`/recover-password`, admin, account), `/` last |
+| `ROUTES_ORG_ONLY` | the rest after `/orgs/<id>` | `/` → `org-overview`, `/edit` → `org-edit` |
 | `ROUTES_CONTEXT` | the path as Personal, or the rest after `/orgs/<id>` | none yet (modules, #31) |
 | `SECTIONS_CONTEXT` | `[prefix, list path]` for context switches (`sectionTarget.js`) | none yet |
 
@@ -109,8 +109,7 @@ registry:
 id** (anything outside `^[1-9][0-9]*$`, or above `2147483647` — the backend's `parseOrgId()` rule:
 `0`, `007`, `abc`, `1e3`, `2147483648`) resolves to `{ page: 'not-found', context: PERSONAL }`
 **without issuing any request**; a valid id tries organization-only routes, then context-aware
-routes, with `{ kind: 'organization', orgId }` as context. `not-found` falls back to the home page
-until #30 adds `NotFound`. `Router.extractContextParams(path, hash)` strips a valid `/orgs/<id>`
+routes, with `{ kind: 'organization', orgId }` as context. The `not-found` key renders `NotFound`. `Router.extractContextParams(path, hash)` strips a valid `/orgs/<id>`
 prefix so a page reads its params the same way in both contexts; `hashQuery.js` reads and builds
 the `?…` part of a hash.
 
@@ -163,6 +162,66 @@ control rather than an optimistic one.
 (`GET /orgs/:orgId.json`) and rename (`PATCH /orgs/:orgId.json { name }`); callers pass the `orgId`
 of the validated active context.
 
+### Pages (`components/resources/organizations/pages/`)
+
+| Route | Page key | Page |
+|---|---|---|
+| `#/orgs/new` | `org-new` | `OrganizationNew`: a name form. Creating refreshes the org list, then navigates to the new organization's overview |
+| `#/orgs/:orgId` | `org-overview` | `OrganizationOverview`: fetched on every visit; shows the name, the user's role, and a **Rename** link only when `useCan(ACTIONS.RENAME_ORGANIZATION)` is true (`admin` or `owner`) |
+| `#/orgs/:orgId/edit` | `org-edit` | `OrganizationEdit`: prefilled from a fetch; saving goes back to the overview |
+
+- `OrganizationEdit` renders **nothing** while the role is unknown (`null`) and `PermissionDenied`
+  for a role that may not rename. A `403` on save shows `PERMISSION_DENIED_MESSAGE` inline (the
+  `403` also triggers the role refresh above, so a role drop is picked up).
+- A `404` on load or save renders `<NotFound orgId={orgId} />`.
+- **After-write rule:** create and rename share `OrganizationFormController`. It validates the name,
+  toggles `pending`, and on success runs `refreshOrgs()` **before** navigating to
+  `landingFor(organizationContext(org.id))`, so the switcher and `role` reflect the write. A failure
+  shows the backend message; a session-expired rejection only resets `pending` (no error, no
+  navigation).
+- **Name validation:** `validateOrganizationName(name, field = 'name')` in
+  `utils/validation/fieldValidators.js` (ported from ward) returns `Name is required` for a blank
+  trimmed name and `Name must be at most 255 characters` past `MAX_ORGANIZATION_NAME_LENGTH = 255`
+  **code points** (an emoji counts once). Control characters and anything else are left to the
+  backend `400`, which stays authoritative.
+
+### Context switcher (`components/common/header/contextSwitcher/`)
+
+`HeaderHelper` renders `<ContextSwitcher loggedIn pending />` first in the left `Nav`, after the
+brand and before the auth links. It is a `NavDropdown` with `id="context-switcher"`, hidden while
+logged out or pending approval.
+
+- Entries, in order: **Personal**, the caller's organizations from `useOwnerContext().orgs`, then
+  **+ Create organization** (`#/orgs/new`), whatever the number of organizations. The active entry
+  is checked; the role is not shown.
+- Long names are truncated (`text-truncate`) with the full text in `title`. The toggle title is the
+  active organization's name **from the list**, or the neutral `Organization` (`NEUTRAL_TITLE`)
+  when it is not listed, never a name read from storage.
+- When `/orgs.json` fails, it shows the inline `Could not load organizations`
+  (`ORGS_ERROR_MESSAGE`); Personal and Create stay usable and the rest of the app keeps working.
+- Picking an entry (`ContextSwitcherController.pick`) stores it in `ContextStorage`
+  (`rememberOrganization` / `rememberPersonal`) **before** navigating to
+  `switchTargetFor(currentHash)`: the equivalent section's list when the current page is under a
+  `SECTIONS_CONTEXT` prefix, otherwise the picked context's landing. Each item's `href` uses the
+  same target as its click.
+
+### Not found and permission denied
+
+- `common/notFound/NotFound.jsx` is **one view** for a malformed id (resolved without a request) and
+  for a backend `404`, so it never reveals whether an organization exists. It offers **Go to
+  Personal** (`#/`) and, in an effect, calls `forgetStaleContext(userId, orgId)`, which forgets the
+  id when it is the user's remembered context.
+- `common/PermissionDenied.jsx` exports `PERMISSION_DENIED_MESSAGE` ("You don't have permission to
+  do this") and the default view shown in place of a page the role cannot use. Gating with `can()`
+  is UX only; the backend enforces it.
+
+### Remount on context change
+
+`AppHelper.render(route)` takes the whole route and wraps the page in
+`<Fragment key={contextKey(route.context)}>` (`personal` or `org-<id>`). Switching from one
+organization to another therefore remounts the page with fresh state and a fresh fetch: no stale
+organization name and no stuck Not-found. Unknown page keys still fall back to home.
+
 ## Testing
 
 - Unit: `auth/tests/organization.service.spec.ts`, `organization-name.dto.spec.ts`,
@@ -181,5 +240,9 @@ of the validated active context.
   specs check it.
 - Frontend (Jasmine, `frontend/specs/`): `utils/routing/` (resolver order, malformed-id guard,
   `extractContextParams`, sections, hash query), `utils/context/`, `utils/permissions/`,
-  `client/OrganizationsClientSpec.js`, `client/PermissionEventsSpec.js` and
-  `components/common/ownerContext/`.
+  `client/OrganizationsClientSpec.js`, `client/PermissionEventsSpec.js`,
+  `components/common/ownerContext/`, `components/resources/organizations/pages/` (controllers,
+  helpers and `OrganizationPagesSpec.js` with the shared `specs/support/roleGatedPageExamples.js`),
+  `components/common/header/contextSwitcher/`, `components/common/notFound/`,
+  `components/common/PermissionDeniedSpec.js`, `utils/validation/fieldValidatorsSpec.js` and the
+  page keys and remount in `components/helpers/AppHelperSpec.js`.

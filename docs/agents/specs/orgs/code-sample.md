@@ -7,11 +7,11 @@ Hub: [Organizations](README.md).
 Index of every source file needed to replicate the organizations feature. The list is split into
 three parts, meant to be copied **in order**:
 
-| Part | File | Files | Still in `code_sample/` after #26 | After #27 | After #28 | After #29 |
-|---|---|---|---|---|---|---|
-| 1. Backend | [code-sample-backend.md](./code-sample-backend.md) | 67 | 45 | 25 | 4 | 4 |
-| 2. Migrations | [code-sample-migrations.md](./code-sample-migrations.md) | 2 | 1 | 1 | 0 | 0 |
-| 3. Frontend | [code-sample-frontend.md](./code-sample-frontend.md) | 57 | 57 | 57 | 57 | 21 |
+| Part | File | Files | Still in `code_sample/` after #26 | After #27 | After #28 | After #29 | After #30 |
+|---|---|---|---|---|---|---|---|
+| 1. Backend | [code-sample-backend.md](./code-sample-backend.md) | 67 | 45 | 25 | 4 | 4 | 4 |
+| 2. Migrations | [code-sample-migrations.md](./code-sample-migrations.md) | 2 | 1 | 1 | 0 | 0 | 0 |
+| 3. Frontend | [code-sample-frontend.md](./code-sample-frontend.md) | 57 | 57 | 57 | 57 | 21 | 0 |
 
 **Total: 126 files plus 3 directories** (103 files plus 3 directories still under `code_sample/`
 after #26: 4 files were ported into `backend/src/core/`, and 19 no-port copies of files citadel
@@ -26,7 +26,10 @@ the frontend foundation (routing, context, permissions, provider/hooks/controlle
 and its routing/context/permissions specs plus `specs/support/jsx-loader.mjs` (36 files, one
 directory) were ported into or reconciled with `frontend/`; only the organizations pages, header
 and switcher, `NotFound.jsx`, `PermissionDenied.jsx` and the five page specs (21 files, #30) are
-left on the frontend side.
+left on the frontend side. After #30, the **frontend is fully ported** and only the **4 backend
+files** remain: the organization pages, header and switcher, `NotFound.jsx`, `PermissionDenied.jsx`
+and the five page specs were moved into `frontend/` (the sample `Header.jsx`, identical to
+citadel's, was deleted), and `code_sample/frontend/` was removed.
 
 The split follows the dependency order, not a preference: the backend compiles without the
 frontend, the migrations need the entities to exist first, and the frontend needs both.
@@ -61,10 +64,10 @@ orgs/code_sample/
       core/            guards, decorators, ports, pipes, roles, cache
       database/
         migrations/    the single organizations migration
-  frontend/
-    assets/js/         routing, context, permissions, ownerContext, pages, client
-    specs/             Jasmine specs mirroring assets/js
 ```
+
+The `frontend/` part of the mirror was fully ported into citadel's `frontend/` in #29 and #30 and
+removed.
 
 ## Proof of the paths
 

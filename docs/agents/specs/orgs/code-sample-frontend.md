@@ -6,6 +6,14 @@ Previous: [Migrations](./code-sample-migrations.md).
 **57 files plus 1 directory.** Every path below was read from the repository tree on branch
 `main`.
 
+**Status after #30:** the frontend part of the sample is **fully ported**. Sections 6-9 (the
+organization pages, the header and switcher, `NotFound.jsx`, `PermissionDenied.jsx` and the five page
+specs) were moved into `frontend/` (rows marked "ported in #30") and `code_sample/frontend/` was
+removed. Pieces the sample left out were ported from ward: `validateOrganizationName` in
+`fieldValidators.js`, the switcher mount in `HeaderHelper.jsx`, the `AppHelper` page keys and
+context-keyed remount, and the specs for the switcher, `NotFound`, `PermissionDenied` and the page
+wiring (`OrganizationPagesSpec`, `specs/support/roleGatedPageExamples.js`).
+
 **Status after #29:** sections 1-5 (routing, context, permissions, provider/hooks/controllers,
 client layer) and their specs (routing, context, permissions and `specs/support/jsx-loader.mjs`)
 were moved into `frontend/` (rows marked "ported in #29"; their links now point at citadel's own
@@ -28,17 +36,17 @@ citadel, no port" were identical to citadel's file. Adaptations made while porti
 
 ## What this part covers
 
-| Group | Files | Still in `code_sample/` after #29 |
+| Group | Files | Still in `code_sample/` after #30 |
 |---|---|---|
 | Routing | 7 | 0 |
 | Context | 3 | 0 |
 | Permissions | 1 | 0 |
 | Provider, hooks, controllers | 5 | 0 |
 | Client layer | 9 | 0 |
-| Organizations pages | 10 | 10 |
-| Header and switcher | 4 | 4 |
-| Shared pieces | 2 | 2 |
-| Specs | 16 | 5 |
+| Organizations pages | 10 | 0 |
+| Header and switcher | 4 | 0 |
+| Shared pieces | 2 | 0 |
+| Specs | 16 | 0 |
 
 The order follows the dependency chain: routing decides the context, the context layer builds the
 paths, permissions decide what renders, then the provider wires it to React, the client makes the
@@ -142,29 +150,32 @@ Base: `frontend/assets/js/components/resources/organizations/pages/`.
 
 | File | Role |
 |---|---|
-| [OrganizationNew.jsx](./code_sample/frontend/assets/js/components/resources/organizations/pages/OrganizationNew.jsx) | Create form - route `#/orgs/new` |
-| [OrganizationOverview.jsx](./code_sample/frontend/assets/js/components/resources/organizations/pages/OrganizationOverview.jsx) | Overview: name, role, Rename link - route `#/orgs/:orgId` |
-| [OrganizationEdit.jsx](./code_sample/frontend/assets/js/components/resources/organizations/pages/OrganizationEdit.jsx) | Rename form - route `#/orgs/:orgId/edit` |
+| [OrganizationNew.jsx](../../../../frontend/assets/js/components/resources/organizations/pages/OrganizationNew.jsx) | Create form - route `#/orgs/new` - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/OrganizationNew.jsx` |
+| [OrganizationOverview.jsx](../../../../frontend/assets/js/components/resources/organizations/pages/OrganizationOverview.jsx) | Overview: name, role, Rename link - route `#/orgs/:orgId` - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/OrganizationOverview.jsx` |
+| [OrganizationEdit.jsx](../../../../frontend/assets/js/components/resources/organizations/pages/OrganizationEdit.jsx) | Rename form - route `#/orgs/:orgId/edit` - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/OrganizationEdit.jsx` |
 
 ### Controllers
 
 | File | Role |
 |---|---|
-| [controllers/OrganizationNewController.js](./code_sample/frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationNewController.js) | Controller behind the create form |
-| [controllers/OrganizationEditController.js](./code_sample/frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationEditController.js) | Controller behind the rename form; shows `PERMISSION_DENIED_MESSAGE` on a `403` |
-| [controllers/OrganizationFormController.js](./code_sample/frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationFormController.js) | Form state and submit wiring shared by create and rename |
-| [controllers/OrganizationLoader.js](./code_sample/frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationLoader.js) | Loader for the overview page |
-| [controllers/navigation.js](./code_sample/frontend/assets/js/components/resources/organizations/pages/controllers/navigation.js) | Navigation targets between the three pages |
+| [controllers/OrganizationNewController.js](../../../../frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationNewController.js) | Controller behind the create form - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationNewController.js` |
+| [controllers/OrganizationEditController.js](../../../../frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationEditController.js) | Controller behind the rename form; shows `PERMISSION_DENIED_MESSAGE` on a `403` - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationEditController.js` |
+| [controllers/OrganizationFormController.js](../../../../frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationFormController.js) | Form state and submit wiring shared by create and rename - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationFormController.js` |
+| [controllers/OrganizationLoader.js](../../../../frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationLoader.js) | Loader for the overview page - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/controllers/OrganizationLoader.js` |
+| [controllers/navigation.js](../../../../frontend/assets/js/components/resources/organizations/pages/controllers/navigation.js) | Navigation targets between the three pages - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/controllers/navigation.js` |
 
 ### Helpers
 
 | File | Role |
 |---|---|
-| [helpers/OrganizationFormHelper.jsx](./code_sample/frontend/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelper.jsx) | Form markup for create and rename |
-| [helpers/OrganizationOverviewHelper.jsx](./code_sample/frontend/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelper.jsx) | Overview markup - name, role, Rename link |
+| [helpers/OrganizationFormHelper.jsx](../../../../frontend/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelper.jsx) | Form markup for create and rename - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelper.jsx` |
+| [helpers/OrganizationOverviewHelper.jsx](../../../../frontend/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelper.jsx) | Overview markup - name, role, Rename link - **ported in #30** to `frontend/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelper.jsx` |
 
 The `OrganizationFormController.js` is the piece that makes create and rename share one
 implementation. If it is missing, both forms have to be rewritten rather than copied.
+
+The forms import `validateOrganizationName` from `utils/validation/fieldValidators.js`. The sample
+does not ship it; it was ported from **ward** in #30, with `MAX_ORGANIZATION_NAME_LENGTH = 255`.
 
 ## 7. Header and switcher
 
@@ -172,21 +183,23 @@ Base: `frontend/assets/js/components/common/header/`.
 
 | File | Role |
 |---|---|
-| [Header.jsx](./code_sample/frontend/assets/js/components/common/header/Header.jsx) | Hosts the switcher, left of the header after the brand |
-| [contextSwitcher/ContextSwitcher.jsx](./code_sample/frontend/assets/js/components/common/header/contextSwitcher/ContextSwitcher.jsx) | The switcher: Personal, the organizations, **+ Create organization** |
-| [contextSwitcher/controllers/ContextSwitcherController.js](./code_sample/frontend/assets/js/components/common/header/contextSwitcher/controllers/ContextSwitcherController.js) | Switcher state: the org list, the active entry, the error when `/orgs.json` fails |
-| [contextSwitcher/helpers/ContextSwitcherHelper.jsx](./code_sample/frontend/assets/js/components/common/header/contextSwitcher/helpers/ContextSwitcherHelper.jsx) | Switcher markup - truncation, the checked item, the `title` attribute |
+| [Header.jsx](../../../../frontend/assets/js/components/common/header/Header.jsx) | Hosts the header; the switcher renders left, after the brand (through `HeaderHelper.jsx`) - **already in citadel, no port** |
+| [contextSwitcher/ContextSwitcher.jsx](../../../../frontend/assets/js/components/common/header/contextSwitcher/ContextSwitcher.jsx) | The switcher: Personal, the organizations, **+ Create organization** - **ported in #30** to `frontend/assets/js/components/common/header/contextSwitcher/ContextSwitcher.jsx` |
+| [contextSwitcher/controllers/ContextSwitcherController.js](../../../../frontend/assets/js/components/common/header/contextSwitcher/controllers/ContextSwitcherController.js) | Switcher state: the org list, the active entry, the error when `/orgs.json` fails - **ported in #30** to `frontend/assets/js/components/common/header/contextSwitcher/controllers/ContextSwitcherController.js` |
+| [contextSwitcher/helpers/ContextSwitcherHelper.jsx](../../../../frontend/assets/js/components/common/header/contextSwitcher/helpers/ContextSwitcherHelper.jsx) | Switcher markup - truncation, the checked item, the `title` attribute - **ported in #30** to `frontend/assets/js/components/common/header/contextSwitcher/helpers/ContextSwitcherHelper.jsx` |
 
-`Header.jsx` also mounts the login/logout nav, which reads from `header/controllers/`,
-`header/helpers/` and `header/hooks/`. Copy those **three directories** too if the replica needs the
-full header - they are not specific to organizations.
+`Header.jsx` was identical to citadel's, so the sample copy was deleted without changes. The switcher
+is actually mounted by `header/helpers/HeaderHelper.jsx`, which the sample omits: it was reconciled
+from **ward** in #30 to render `<ContextSwitcher loggedIn pending />` first in the left `Nav`
+(ward's bank menu and right-aligned account `Nav` were not ported). `Header.jsx` also mounts the
+login/logout nav, which reads from `header/controllers/`, `header/helpers/` and `header/hooks/`.
 
 ## 8. Shared pieces
 
 | File | Role |
 |---|---|
-| [frontend/assets/js/components/common/PermissionDenied.jsx](./code_sample/frontend/assets/js/components/common/PermissionDenied.jsx) | Exports `PERMISSION_DENIED_MESSAGE`, shown by the rename form on a `403` |
-| [frontend/assets/js/components/common/notFound/NotFound.jsx](./code_sample/frontend/assets/js/components/common/notFound/NotFound.jsx) | The generic not-found view, offering "Go to Personal" |
+| [frontend/assets/js/components/common/PermissionDenied.jsx](../../../../frontend/assets/js/components/common/PermissionDenied.jsx) | Exports `PERMISSION_DENIED_MESSAGE`, shown by the rename form on a `403` - **ported in #30** to `frontend/assets/js/components/common/PermissionDenied.jsx` |
+| [frontend/assets/js/components/common/notFound/NotFound.jsx](../../../../frontend/assets/js/components/common/notFound/NotFound.jsx) | The generic not-found view, offering "Go to Personal" - **ported in #30** to `frontend/assets/js/components/common/notFound/NotFound.jsx` |
 
 `NotFound.jsx` is also the view that **forgets a remembered context id** when a `404` or a malformed
 id is hit.
@@ -196,11 +209,11 @@ id is hit.
 | File | Covers |
 |---|---|
 | [frontend/specs/support/jsx-loader.mjs](../../../../frontend/specs/support/jsx-loader.mjs) | The ESM loader every frontend spec needs - without it none runs - **already in citadel, no port** |
-| [specs/assets/js/components/resources/organizations/pages/controllers/OrganizationNewControllerSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationNewControllerSpec.js) | The create controller |
-| [specs/assets/js/components/resources/organizations/pages/controllers/OrganizationEditControllerSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationEditControllerSpec.js) | The rename controller |
-| [specs/assets/js/components/resources/organizations/pages/controllers/OrganizationLoaderSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationLoaderSpec.js) | The overview loader |
-| [specs/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelperSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelperSpec.js) | The form helper |
-| [specs/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelperSpec.js](./code_sample/frontend/specs/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelperSpec.js) | The overview helper |
+| [specs/assets/js/components/resources/organizations/pages/controllers/OrganizationNewControllerSpec.js](../../../../frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationNewControllerSpec.js) | The create controller - **ported in #30** to `frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationNewControllerSpec.js` |
+| [specs/assets/js/components/resources/organizations/pages/controllers/OrganizationEditControllerSpec.js](../../../../frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationEditControllerSpec.js) | The rename controller - **ported in #30** to `frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationEditControllerSpec.js` |
+| [specs/assets/js/components/resources/organizations/pages/controllers/OrganizationLoaderSpec.js](../../../../frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationLoaderSpec.js) | The overview loader - **ported in #30** to `frontend/specs/assets/js/components/resources/organizations/pages/controllers/OrganizationLoaderSpec.js` |
+| [specs/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelperSpec.js](../../../../frontend/specs/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelperSpec.js) | The form helper - **ported in #30** to `frontend/specs/assets/js/components/resources/organizations/pages/helpers/OrganizationFormHelperSpec.js` |
+| [specs/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelperSpec.js](../../../../frontend/specs/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelperSpec.js) | The overview helper - **ported in #30** to `frontend/specs/assets/js/components/resources/organizations/pages/helpers/OrganizationOverviewHelperSpec.js` |
 | [specs/assets/js/utils/routing/HashRouteResolverSpec.js](../../../../frontend/specs/assets/js/utils/routing/HashRouteResolverSpec.js) | Resolution order, `/orgs/<seg>` stripping, the `2147483647` bound - **ported in #29** to `frontend/specs/assets/js/utils/routing/HashRouteResolverSpec.js` |
 | [specs/assets/js/utils/routing/RouterSpec.js](../../../../frontend/specs/assets/js/utils/routing/RouterSpec.js) | `extractContextParams()` - **ported in #29** to `frontend/specs/assets/js/utils/routing/RouterSpec.js` |
 | [specs/assets/js/utils/routing/RouteSpec.js](../../../../frontend/specs/assets/js/utils/routing/RouteSpec.js) | The `Route` type - **already in citadel, no port** |
@@ -248,17 +261,17 @@ The remaining 19 of the 57 are the 16 specs, plus `redirects.js`, `isSessionExpi
 | Permissions | 1 | #29 |
 | Provider, hooks, controllers | 5 | #29 |
 | Client layer | 9 | #29 |
-| Pages | 10 | |
-| Header and switcher | 4 | |
-| Shared pieces | 2 | |
-| Specs | 16 | 11 in #29; 5 page specs left for #30 |
+| Pages | 10 | #30 |
+| Header and switcher | 4 | #30 |
+| Shared pieces | 2 | #30 |
+| Specs | 16 | 11 in #29; 5 in #30 |
 
 ## Not in this part
 
 | Item | Why |
 |---|---|
 | `Header.jsx` subdirectories | `header/controllers/`, `header/helpers/`, `header/hooks/` carry the login/logout nav. Needed for a working header, not organizations-specific |
-| `utils/validation/fieldValidators.js` and `formValidators.js` | Used by the organization forms. Add them if form validation is replicated |
+| `utils/validation/fieldValidators.js` and `formValidators.js` | Used by the organization forms. Already in citadel; `validateOrganizationName` was added from ward in #30 |
 | `App.jsx`, `main.jsx`, `AppController.js` | Entry point and route dispatcher. Project-wide |
 | `LoginModalEvents.js`, `LoginModalController`, `useLoginModal`, `useDeviceCountdown` | The login modal. Only needed if the replica keeps the login flow |
 | `utils/locale/` | Locale loading. Not referenced by the organization pages |

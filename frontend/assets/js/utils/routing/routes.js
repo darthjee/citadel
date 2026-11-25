@@ -5,12 +5,13 @@
  */
 
 /**
- * Personal-only routes, matched first against the full path (so a static `/orgs/<word>` path
- * listed here is never read as an organization id). `'/'` → `'home'` stays last.
+ * Personal-only routes, matched first against the full path (so `/orgs/new` is never read as an
+ * organization id). `'/'` → `'home'` stays last.
  *
  * @type {Array<Array<string>>}
  */
 export const ROUTES_PERSONAL = [
+  ['/orgs/new', 'org-new'],
   ['/recover-password', 'reset-password'],
   ['/admin/users/:id/edit', 'admin-user-edit'],
   ['/admin/users', 'admin-users'],
@@ -21,11 +22,13 @@ export const ROUTES_PERSONAL = [
 
 /**
  * Organization-only routes, matched against the path left after the `/orgs/<id>` prefix.
- * The organization pages (overview, edit) register their rows here.
  *
  * @type {Array<Array<string>>}
  */
-export const ROUTES_ORG_ONLY = [];
+export const ROUTES_ORG_ONLY = [
+  ['/', 'org-overview'],
+  ['/edit', 'org-edit'],
+];
 
 /**
  * Context-aware routes, valid both as Personal (`/x`) and under an organization (`/orgs/<id>/x`).

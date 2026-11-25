@@ -1,5 +1,6 @@
 import OrganizationEditController from '../../../../../../../../assets/js/components/resources/organizations/pages/controllers/OrganizationEditController.js';
 import ApiError from '../../../../../../../../assets/js/client/ApiError.js';
+import sessionExpiredError from '../../../../../../../support/sessionExpiredError.js';
 
 describe('OrganizationEditController', () => {
   let deps;
@@ -61,5 +62,17 @@ describe('OrganizationEditController', () => {
     expect(deps.setSubmitError).not.toHaveBeenCalledWith('Forbidden');
     expect(deps.setPending.calls.mostRecent().args[0]).toBeFalse();
     expect(deps.onNotFound).not.toHaveBeenCalled();
+  });
+
+  it('only resets pending on an expired session', async () => {
+    deps.client.rename.and.rejectWith(sessionExpiredError());
+
+    await controller.handleSubmit(5, { name: 'New' });
+
+    expect(deps.setSubmitError).not.toHaveBeenCalledWith(jasmine.any(String));
+    expect(deps.refreshOrgs).not.toHaveBeenCalled();
+    expect(deps.navigate).not.toHaveBeenCalled();
+    expect(deps.onNotFound).not.toHaveBeenCalled();
+    expect(deps.setPending.calls.mostRecent().args[0]).toBeFalse();
   });
 });

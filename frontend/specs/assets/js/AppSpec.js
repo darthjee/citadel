@@ -29,7 +29,7 @@ describe('App', () => {
     spyOn(AppHelper, 'render').and.returnValue(React.createElement(Probe));
     renderedOutput(React.createElement(App));
 
-    expect(AppHelper.render).toHaveBeenCalledWith('home');
+    expect(AppHelper.render).toHaveBeenCalledWith({ page: 'home', context: { kind: 'personal' } });
     expect(captured).not.toBe(DEFAULT_OWNER_CONTEXT);
     expect(captured.context).toEqual({ kind: 'personal' });
     expect(captured.page).toBe('home');
