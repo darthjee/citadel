@@ -54,7 +54,9 @@ this file changes.
 
 ## Active specs
 
-none
+| Feature | Specs |
+|---|---|
+| Organizations (domain data owned by a group of users instead of one user) | [specs/orgs/](specs/orgs/README.md) |
 
 ## Completed specs
 
