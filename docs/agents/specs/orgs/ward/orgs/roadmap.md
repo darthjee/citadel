@@ -1,8 +1,6 @@
 # Organizations - Roadmap
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [General](./general.md), [Edge cases](./edge-cases.md), [Roles](./roles.md),
-[Security](./security.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
@@ -50,6 +48,8 @@ The largest of the six, and the one that unlocks the others.
 - An `admin` manages only `user` members.
 - The `owner` manages `admin`s, transfers ownership and closes the organization.
 
+This is the first epic that introduces **owner-only actions** - the current matrix has none.
+
 ### What is missing today
 
 | Capability | Status |
@@ -63,24 +63,25 @@ The largest of the six, and the one that unlocks the others.
 
 ### What it would break, and why the design anticipated it
 
-This is the epic with the widest blast radius across the files in this series.
-
 | Area | What must change | Why |
 |---|---|---|
 | `OrganizationService#create` is the **only** membership writer | A second writer arrives | The "exactly one owner" invariant is held by that single-writer property, **not by a DB constraint**. Nothing in the database will catch a violation |
 | The minimal response shape | A member list becomes needed | Adding `members` to the organization response would turn four routes into an enumeration surface. It should come as a dedicated endpoint with its own authorization |
-| Role rules | Owner-only actions appear for the first time | The `< Roles >` matrix currently has no owner-only row |
+| Role rules | Owner-only actions appear for the first time | The roles matrix currently has no owner-only row |
 | `findRole` returning `null` | A joined member is a new state | Still fine - membership is membership - but the "one member always" assumption disappears from tests and fixtures |
 | Frontend controls | `MANAGE_MEMBERS`-style actions | `can()` must mirror whatever the backend enforces; a divergence shows a control the API refuses |
-| `edge-cases.md` "organization with a single member" | No longer universally true | The whole section is a statement about the current state |
+| The "organization with a single member" statement | No longer universally true | The whole edge-case section is a statement about the current state |
 
 ### The invariant at risk
 
 Stated plainly because it is the most likely casualty: **"exactly one owner" has no database
-enforcement.** There is no partial unique index on `role = 'owner'`. Today it holds because
-`create` is the only writer and always writes one `owner`. A join or transfer path introduces a
-second writer, and the invariant then depends on that new code getting it right - including inside
-its own transaction.
+enforcement.**
+
+There is no partial unique index on `role = 'owner'`. Today it holds because `create` is the only
+writer and always writes one `owner`. A join or transfer path introduces a second writer, and the
+invariant then depends on that new code getting it right - including inside its own transaction.
+
+See [Service](./service.md) and [Roles](./roles.md).
 
 ## #83 - Closing (deleting) organizations
 
@@ -212,7 +213,7 @@ Useful for estimating any of the six: which files in this documentation set woul
 | #94 | Models, Owner context, Security, Roles, Edge cases |
 | #95 | Models, Tables, Migrations, Response, Edge cases |
 
-`Owner context` is the file that ages best for #82 and worst for #94: joining does not disturb it,
+**Owner context** is the file that ages best for #82 and worst for #94: joining does not disturb it,
 but sharing does, because the mechanism is built on resolving exactly one owner.
 
 ## Sequencing observations
