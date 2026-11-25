@@ -37,6 +37,7 @@ backend/src/
 │   ├── error-codes.ts         #   category/specific error codes + status → code mapping
 │   ├── locked.exception.ts    #   423 Locked HttpException
 │   ├── strict-validation.pipe.ts #  @StrictBody(): strict per-parameter body validation (unknown fields → 400)
+│   ├── string-validators.ts   #   trimString / MaxCodePoints (length in code points) for DTOs
 │   ├── parse-id.ts            #   parseId / ownerNotFound: strict route id parsing, uniform 404
 │   ├── parse-org-id.ts        #   parseOrgId: strict :orgId parsing (built on parseId)
 │   ├── org-role.ts            #   OrgRole (user < admin < owner), hasMinRole, orgRoleForbidden
@@ -46,7 +47,6 @@ backend/src/
 │   ├── current-owner.decorator.ts #  @CurrentOwner(): injects request.ownerContext
 │   ├── min-org-role.decorator.ts #  @MinOrgRole(role): a route's minimum organization role
 │   ├── organization-membership-lookup.ts # ORGANIZATION_MEMBERSHIP_LOOKUP port (implemented by auth/)
-│   ├── no-organization-membership-lookup.ts # fail-closed default lookup (until #28)
 │   ├── cache-invalidation.decorator.ts #  InvalidatesOwner / InvalidatesPaths / NoCacheInvalidation
 │   ├── cache-invalidation.interceptor.ts # global APP_INTERCEPTOR emitting X-Cache-Invalidate
 │   ├── cache-token.service.ts #   HMAC cache-token generation for Tent cache keying
@@ -63,6 +63,8 @@ backend/src/
 │   ├── auth.module.ts
 │   ├── auth.controller.ts
 │   ├── auth.service.ts
+│   ├── organization.service.ts # organizations + memberships (only membership writer) — see docs/agents/modules/auth/organizations.md
+│   ├── organization.controller.ts # /orgs.json, /orgs/:orgId.json
 │   ├── dto/
 │   ├── entities/
 │   ├── events/
@@ -92,6 +94,8 @@ for the rule) — only Auth owns tables today (Mail has no HTTP surface and no e
 | `auth_refresh_tokens` | Auth | |
 | `auth_authorization_requests` | Auth | `user_id` is a logical FK (no physical FK, no cross-module JOIN) — `NULL` when the request's username didn't resolve to a real user |
 | `auth_account_edit_lockouts` | Auth | `user_id` is a logical FK (no physical FK, no cross-module JOIN), unique — one row per user, upserted in place |
+| `auth_organizations` | Auth | No owner column — ownership lives in the membership role. See [Organizations](../modules/auth/organizations.md) |
+| `auth_organization_memberships` | Auth | `organization_id`/`user_id` are **real** FKs (all three tables are owned by Auth), `ON DELETE RESTRICT`; unique `(organization_id, user_id)` |
 
 ## Build
 
@@ -197,10 +201,10 @@ organization role. Full specification: [owner-context.md](../specs/orgs/owner-co
   missing - a programming error), declare `@MinOrgRole(role)` on every write, and take bodies only
   through `@StrictBody()`.
 - **Port.** `core/` never imports `auth/`: the guard depends on the `ORGANIZATION_MEMBERSHIP_LOOKUP`
-  port (`core/organization-membership-lookup.ts`). Until the organizations backend lands (#28),
-  `AppModule` binds it to the fail-closed `NoOrganizationMembershipLookup`, which answers `null`
-  for everyone, so every `/orgs/:orgId/...` route answers the uniform 404. #28 binds
-  `OrganizationService` (`useExisting`) in `AuthModule` instead.
+  port (`core/organization-membership-lookup.ts`). `AuthModule` binds it to `OrganizationService`
+  (`useExisting`, one shared instance) and exports it; `AppModule` imports `AuthModule`, so the
+  global guard resolves real roles. See
+  [Organizations](../modules/auth/organizations.md#the-port-binding).
 
 ## Error responses
 

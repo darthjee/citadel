@@ -19,16 +19,25 @@ The only core files left under `code_sample/` are `cache-class.ts` and `cache-po
 which belong to #33 (the `X-Cache-Allow` model). Rows marked "new in #27" are citadel additions with
 no counterpart in the original.
 
+**Status after #28:** the organizations backend (entities, service, controller, response, DTO,
+invalidation, `AuthModule` reconciliation) and every organization spec and test support file were
+ported to `backend/src/auth/` (rows marked "ported in #28"), so **4 files remain**: `cache-class.ts`
+and `cache-policy.interceptor.ts` (#33) and the two `bank` reference files (#31). `user.entity.ts`
+and `repo-mock.test-support.ts` were reconciled with citadel's own files (only ward's unrelated
+`locale` column differed, which is not ported) and deleted. The fail-closed
+`no-organization-membership-lookup.ts` (#27) was deleted: `AuthModule` now binds the port to
+`OrganizationService`.
+
 ## What this part covers
 
-| Group | Files | Still in `code_sample/` after #26 | After #27 |
-|---|---|---|---|
-| Entities | 3 | 3 | 3 |
-| Service, controller, response, DTO, module | 6 | 6 | 6 |
-| Core - access control | 27 | 13 | 2 |
-| Tests - organizations | 12 + 1 directory | 12 + 1 directory | 12 + 1 directory |
-| Tests - core | 17 + 1 directory | 9 + 1 directory | 0 |
-| Bank reference for role enforcement | 2 | 2 | 2 |
+| Group | Files | Still in `code_sample/` after #26 | After #27 | After #28 |
+|---|---|---|---|---|
+| Entities | 3 | 3 | 3 | 0 |
+| Service, controller, response, DTO, module | 6 | 6 | 6 | 0 |
+| Core - access control | 27 | 13 | 2 | 2 |
+| Tests - organizations | 12 + 1 directory | 12 + 1 directory | 12 + 1 directory | 0 |
+| Tests - core | 17 + 1 directory | 9 + 1 directory | 0 | 0 |
+| Bank reference for role enforcement | 2 | 2 | 2 | 2 |
 
 Copy in the order below. The entities come first because the service imports them; the core layer
 comes before the tests because the tests import it.
@@ -37,9 +46,9 @@ comes before the tests because the tests import it.
 
 | File | Role |
 |---|---|
-| [backend/src/auth/entities/organization.entity.ts](./code_sample/backend/src/auth/entities/organization.entity.ts) | `Organization` - table `auth_organizations` |
-| [backend/src/auth/entities/organization-membership.entity.ts](./code_sample/backend/src/auth/entities/organization-membership.entity.ts) | `OrganizationMembership` - table `auth_organization_memberships`, carries `role` |
-| [backend/src/auth/entities/user.entity.ts](./code_sample/backend/src/auth/entities/user.entity.ts) | `User` - the source of `isAdmin`; referenced by the membership foreign key |
+| [backend/src/auth/entities/organization.entity.ts](../../../../backend/src/auth/entities/organization.entity.ts) | `Organization` - table `auth_organizations` - **ported in #28** to `backend/src/auth/entities/organization.entity.ts` |
+| [backend/src/auth/entities/organization-membership.entity.ts](../../../../backend/src/auth/entities/organization-membership.entity.ts) | `OrganizationMembership` - table `auth_organization_memberships`, carries `role` - **ported in #28** to `backend/src/auth/entities/organization-membership.entity.ts` |
+| [backend/src/auth/entities/user.entity.ts](../../../../backend/src/auth/entities/user.entity.ts) | `User` - the source of `isAdmin`; referenced by the membership foreign key - **already in citadel, no port** (only ward's unrelated `locale` column differed) |
 
 Two entities and no third one: there is no `OrganizationOwner`, `OrganizationInvite` or
 `OrganizationSettings`. `user.entity.ts` is listed because the membership references it - without
@@ -49,12 +58,12 @@ it the foreign key and the `isAdmin` flag have no source.
 
 | File | Role |
 |---|---|
-| [backend/src/auth/organization.service.ts](./code_sample/backend/src/auth/organization.service.ts) | `OrganizationService` - the **single writer of memberships**; implements the membership-lookup port; holds the rename role check |
-| [backend/src/auth/organization.controller.ts](./code_sample/backend/src/auth/organization.controller.ts) | `OrganizationController` - the four routes, no path prefix |
-| [backend/src/auth/organization-response.ts](./code_sample/backend/src/auth/organization-response.ts) | The serializer producing `{ id, name, role, created_at, updated_at }` |
-| [backend/src/auth/organization-invalidation.ts](./code_sample/backend/src/auth/organization-invalidation.ts) | Cache invalidation for the organization routes |
-| [backend/src/auth/dto/organization-name.dto.ts](./code_sample/backend/src/auth/dto/organization-name.dto.ts) | `OrganizationNameDto` - `name` only, trimmed, 255 code points, no `Cc` |
-| [backend/src/auth/auth.module.ts](./code_sample/backend/src/auth/auth.module.ts) | `AuthModule` - registers `OrganizationService` and binds `ORGANIZATION_MEMBERSHIP_LOOKUP` to it with **`useExisting`** |
+| [backend/src/auth/organization.service.ts](../../../../backend/src/auth/organization.service.ts) | `OrganizationService` - the **single writer of memberships**; implements the membership-lookup port; holds the rename role check - **ported in #28** |
+| [backend/src/auth/organization.controller.ts](../../../../backend/src/auth/organization.controller.ts) | `OrganizationController` - the four routes, no path prefix - **ported in #28** |
+| [backend/src/auth/organization-response.ts](../../../../backend/src/auth/organization-response.ts) | The serializer producing `{ id, name, role, created_at, updated_at }` - **ported in #28** |
+| [backend/src/auth/organization-invalidation.ts](../../../../backend/src/auth/organization-invalidation.ts) | Cache invalidation for the organization routes - **ported in #28** |
+| [backend/src/auth/dto/organization-name.dto.ts](../../../../backend/src/auth/dto/organization-name.dto.ts) | `OrganizationNameDto` - `name` only, trimmed, 255 code points, no `Cc` - **ported in #28** (with a new `backend/src/core/string-validators.ts` for `trimString`/`MaxCodePoints`, absent from the sample) |
+| [backend/src/auth/auth.module.ts](../../../../backend/src/auth/auth.module.ts) | `AuthModule` - registers `OrganizationService` and binds `ORGANIZATION_MEMBERSHIP_LOOKUP` to it with **`useExisting`** - **reconciled in #28** with citadel's module |
 
 `auth.module.ts` is the file that decides there is **one** service instance, not two. With
 `useFactory` or a second provider entry, the controller and the guard would talk to different
@@ -134,19 +143,19 @@ Base: `backend/src/auth/tests/`.
 
 | File | Covers |
 |---|---|
-| [organization.service.spec.ts](./code_sample/backend/src/auth/tests/organization.service.spec.ts) | `OrganizationService` - create, rename, the single-writer rule |
-| [organization-response.spec.ts](./code_sample/backend/src/auth/tests/organization-response.spec.ts) | The five-field serializer |
-| [organization-name.dto.spec.ts](./code_sample/backend/src/auth/tests/organization-name.dto.spec.ts) | Name validation, including the code-point limit |
-| [organization.controller.create.e2e-spec.ts](./code_sample/backend/src/auth/tests/organization.controller.create.e2e-spec.ts) | `POST /orgs.json` - the `201` and `role: "owner"` |
-| [organization.controller.read.e2e-spec.ts](./code_sample/backend/src/auth/tests/organization.controller.read.e2e-spec.ts) | `GET /orgs.json` and `GET /orgs/:orgId.json` |
-| [organization.controller.rename.e2e-spec.ts](./code_sample/backend/src/auth/tests/organization.controller.rename.e2e-spec.ts) | `PATCH /orgs/:orgId.json`, including the `400` > `404` > `403` order |
-| [organization.controller.not-found.e2e-spec.ts](./code_sample/backend/src/auth/tests/organization.controller.not-found.e2e-spec.ts) | The uniform `404` across every failure case |
-| [organization-invalidation.spec.ts](./code_sample/backend/src/auth/tests/organization-invalidation.spec.ts) | Cache invalidation on write |
-| [organization.controller.e2e-test-support.ts](./code_sample/backend/src/auth/tests/organization.controller.e2e-test-support.ts) | Shared fixtures for the controller specs above |
-| [owner-scoped.e2e-spec.ts](./code_sample/backend/src/auth/tests/owner-scoped.e2e-spec.ts) | The owner-scoped contract end to end |
-| [owner-scoped.e2e-test-support.ts](./code_sample/backend/src/auth/tests/owner-scoped.e2e-test-support.ts) | Fixtures for the above |
-| [repo-mock.test-support.ts](./code_sample/backend/src/auth/tests/repo-mock.test-support.ts) | Repository mocks used by the service specs |
-| [support/](./code_sample/backend/src/auth/tests/support/) | Shared test support - **copy the whole directory** |
+| [organization.service.spec.ts](../../../../backend/src/auth/tests/organization.service.spec.ts) | `OrganizationService` - create, rename, the single-writer rule - **ported in #28** |
+| [organization-response.spec.ts](../../../../backend/src/auth/tests/organization-response.spec.ts) | The five-field serializer - **ported in #28** |
+| [organization-name.dto.spec.ts](../../../../backend/src/auth/tests/organization-name.dto.spec.ts) | Name validation, including the code-point limit - **ported in #28** |
+| [organization.controller.create.e2e-spec.ts](../../../../backend/src/auth/tests/organization.controller.create.e2e-spec.ts) | `POST /orgs.json` - the `201` and `role: "owner"` - **ported in #28** |
+| [organization.controller.read.e2e-spec.ts](../../../../backend/src/auth/tests/organization.controller.read.e2e-spec.ts) | `GET /orgs.json` and `GET /orgs/:orgId.json` - **ported in #28** |
+| [organization.controller.rename.e2e-spec.ts](../../../../backend/src/auth/tests/organization.controller.rename.e2e-spec.ts) | `PATCH /orgs/:orgId.json`, including the `400` > `404` > `403` order - **ported in #28** |
+| [organization.controller.not-found.e2e-spec.ts](../../../../backend/src/auth/tests/organization.controller.not-found.e2e-spec.ts) | The uniform `404` across every failure case - **ported in #28** |
+| [organization-invalidation.spec.ts](../../../../backend/src/auth/tests/organization-invalidation.spec.ts) | Cache invalidation on write - **ported in #28** |
+| [organization.controller.e2e-test-support.ts](../../../../backend/src/auth/tests/organization.controller.e2e-test-support.ts) | Shared fixtures for the controller specs above - **ported in #28** |
+| [owner-scoped.e2e-spec.ts](../../../../backend/src/auth/tests/owner-scoped.e2e-spec.ts) | The owner-scoped contract end to end - **ported in #28** |
+| [owner-scoped.e2e-test-support.ts](../../../../backend/src/auth/tests/owner-scoped.e2e-test-support.ts) | Fixtures for the above - **ported in #28** |
+| [repo-mock.test-support.ts](../../../../backend/src/auth/tests/repo-mock.test-support.ts) | Repository mocks used by the service specs - **already in citadel, no port** |
+| [support/](../../../../backend/src/auth/tests/support/) | Shared test support - **reconciled in #28** (`build-auth-test-app.ts`, `in-memory-repo.ts`; `in-memory-organization-repos.ts` ported; the rest already in citadel) |
 
 ## 9. Tests - core
 
@@ -163,7 +172,6 @@ Base: `backend/src/core/tests/`.
 | [**owner-scoped.coverage.spec.ts**](../../../../backend/src/core/tests/owner-scoped.coverage.spec.ts) | **A coverage spec** - fails the build on a plain `@Body()` or an owner-scoped route declared `public` - **new in #27** (not in the original) |
 | [**cache-invalidation.coverage.spec.ts**](../../../../backend/src/core/tests/cache-invalidation.coverage.spec.ts) | **A coverage spec** - fails the build on an owner-scoped write without a cache-invalidation declaration - **new in #27** (not in the original) |
 | [cache-invalidation.interceptor.spec.ts](../../../../backend/src/core/tests/cache-invalidation.interceptor.spec.ts) | The invalidation interceptor: reads skipped, owner/paths/none resolution, unsafe paths dropped, no header on error - **new in #27** (not in the original) |
-| [no-organization-membership-lookup.spec.ts](../../../../backend/src/core/tests/no-organization-membership-lookup.spec.ts) | The fail-closed default membership lookup - **new in #27** (citadel-only, until #28) |
 | [parse-org-id.spec.ts](../../../../backend/src/core/tests/parse-org-id.spec.ts) | `parseOrgId()`, including the `1e3` case - **ported in #27** to `backend/src/core/tests/parse-org-id.spec.ts` |
 | [parse-id.spec.ts](../../../../backend/src/core/tests/parse-id.spec.ts) | The generic id parser - **ported in #26** to `backend/src/core/tests/parse-id.spec.ts` |
 | [current-owner.decorator.spec.ts](../../../../backend/src/core/tests/current-owner.decorator.spec.ts) | `@CurrentOwner()` - **ported in #27** to `backend/src/core/tests/current-owner.decorator.spec.ts` |
@@ -174,7 +182,7 @@ Base: `backend/src/core/tests/`.
 | [http-exception.filter.spec.ts](../../../../backend/src/core/tests/http-exception.filter.spec.ts) | The uniform error body shape - **already in citadel, no port** |
 | [cache-invalidation.decorator.spec.ts](../../../../backend/src/core/tests/cache-invalidation.decorator.spec.ts) | `@CacheInvalidation()` - **ported in #27** to `backend/src/core/tests/cache-invalidation.decorator.spec.ts` |
 | [cache-token.service.spec.ts](../../../../backend/src/core/tests/cache-token.service.spec.ts) | The per-caller cache token - **already in citadel, no port** (env prefix only) |
-| [app.module.spec.ts](../../../../backend/src/core/tests/app.module.spec.ts) | Global guard registration order - `JwtGuard` before `OwnerContextGuard` - **already in citadel, no port** (env prefix only) |
+| [app.module.spec.ts](../../../../backend/src/core/tests/app.module.spec.ts) | Global guard registration order - `JwtGuard` before `OwnerContextGuard`; since #28 also that `AuthModule` binds `ORGANIZATION_MEMBERSHIP_LOOKUP` to `OrganizationService` - **already in citadel, no port** (env prefix only) |
 | [support/](../../../../backend/src/core/tests/support/) | Shared test support (`route-discovery.ts`, used by every coverage spec) - **ported in #27** to `backend/src/core/tests/support/`, with citadel's `KNOWN_CONTROLLERS` |
 
 The three coverage specs (`min-org-role`, `owner-scoped` and `cache-invalidation`) are the files the

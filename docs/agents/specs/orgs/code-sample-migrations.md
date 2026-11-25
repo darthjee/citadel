@@ -5,13 +5,15 @@ Previous: [Backend](./code-sample-backend.md). Next: [Frontend](./code-sample-fr
 
 **2 files.** Small on purpose, and the part most likely to break a replica.
 
+**Status after #28:** both files are in citadel; **none remains under `code_sample/`**.
+
 ## Files
 
 Base: `backend/src/database/migrations/`.
 
 | File | Role |
 |---|---|
-| [20261107120015-auth-create-organizations.ts](./code_sample/backend/src/database/migrations/20261107120015-auth-create-organizations.ts) | Creates `auth_organizations` and `auth_organization_memberships`, both foreign keys, the unique index `(organization_id, user_id)` and the `user_id` index |
+| [20261107120015-auth-create-organizations.ts](../../../../backend/src/database/migrations/20261107120015-auth-create-organizations.ts) | Creates `auth_organizations` and `auth_organization_memberships`, both foreign keys, the unique index `(organization_id, user_id)` and the `user_id` index - **ported in #28** to `backend/src/database/migrations/20261107120015-auth-create-organizations.ts` (covered by `database/tests/auth-create-organizations-migration.spec.ts` and the MySQL `organization.service.integration-spec.ts`) |
 | [helpers.ts](../../../../backend/src/database/migrations/helpers.ts) | Shared migration helpers - **imported by the organizations migration**. **Already in citadel, no port** (#26): the sample copy was identical and has been deleted |
 
 `helpers.ts` is shared by the whole migration set, not only this one. Copy it as-is; if the target

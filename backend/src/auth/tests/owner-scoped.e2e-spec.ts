@@ -63,11 +63,10 @@ describe('@OwnerScopedController (e2e)', () => {
       expect(response.body).toEqual({ kind: 'user', userId: current.userRepo.rows[1].id });
     });
 
-    it('is user-scoped: X-Cache-Allow with a private Cache-Control', async () => {
+    it('is user-scoped: X-Skip-Cache with a private Cache-Control', async () => {
       const response = await getOwner(current.app, owner, '');
 
-      expect(response.headers['x-cache-allow']).toBe('true');
-      expect(response.headers['x-skip-cache']).toBeUndefined();
+      expect(response.headers['x-skip-cache']).toBe('true');
       expect(response.headers['cache-control']).toBe('private, no-store');
     });
 
@@ -83,11 +82,10 @@ describe('@OwnerScopedController (e2e)', () => {
       expect(response.body).toEqual({ kind: 'organization', organizationId: 1, role: 'owner' });
     });
 
-    it('is user-scoped: X-Cache-Allow with a private Cache-Control', async () => {
+    it('is user-scoped: X-Skip-Cache with a private Cache-Control', async () => {
       const response = await getOwner(current.app, owner, '/orgs/1');
 
-      expect(response.headers['x-cache-allow']).toBe('true');
-      expect(response.headers['x-skip-cache']).toBeUndefined();
+      expect(response.headers['x-skip-cache']).toBe('true');
       expect(response.headers['cache-control']).toBe('private, no-store');
     });
 

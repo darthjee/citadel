@@ -38,6 +38,8 @@ describe('migrations round trip (MySQL)', () => {
     expect((await tableNames(ds)).filter((name) => name.startsWith('auth_'))).toEqual([
       'auth_account_edit_lockouts',
       'auth_authorization_requests',
+      'auth_organization_memberships',
+      'auth_organizations',
       'auth_password_reset_tokens',
       'auth_refresh_tokens',
       'auth_users',

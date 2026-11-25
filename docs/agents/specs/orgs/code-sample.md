@@ -7,17 +7,21 @@ Hub: [Organizations](README.md).
 Index of every source file needed to replicate the organizations feature. The list is split into
 three parts, meant to be copied **in order**:
 
-| Part | File | Files | Still in `code_sample/` after #26 | After #27 |
-|---|---|---|---|---|
-| 1. Backend | [code-sample-backend.md](./code-sample-backend.md) | 67 | 45 | 25 |
-| 2. Migrations | [code-sample-migrations.md](./code-sample-migrations.md) | 2 | 1 | 1 |
-| 3. Frontend | [code-sample-frontend.md](./code-sample-frontend.md) | 57 | 57 | 57 |
+| Part | File | Files | Still in `code_sample/` after #26 | After #27 | After #28 |
+|---|---|---|---|---|---|
+| 1. Backend | [code-sample-backend.md](./code-sample-backend.md) | 67 | 45 | 25 | 4 |
+| 2. Migrations | [code-sample-migrations.md](./code-sample-migrations.md) | 2 | 1 | 1 | 0 |
+| 3. Frontend | [code-sample-frontend.md](./code-sample-frontend.md) | 57 | 57 | 57 | 57 |
 
 **Total: 126 files plus 3 directories** (103 files plus 3 directories still under `code_sample/`
 after #26: 4 files were ported into `backend/src/core/`, and 19 no-port copies of files citadel
 already has were deleted; their rows now link to citadel's own file). After #27, **83 files plus 2
 directories** remain: the owner-context mechanism and its core specs (20 files, including
-`core/tests/support/`) were ported into `backend/src/core/`.
+`core/tests/support/`) were ported into `backend/src/core/`. After #28, **61 files plus 1
+directory** remain: the organizations backend (entities, service, controller, module, DTO, response,
+invalidation), its specs and `auth/tests/support/`, and the organizations migration were ported into
+`backend/src/` (22 files); only `core/cache-class.ts` and `core/cache-policy.interceptor.ts` (#33) and
+the two `bank` reference files (#31) are left on the backend side.
 
 The split follows the dependency order, not a preference: the backend compiles without the
 frontend, the migrations need the entities to exist first, and the frontend needs both.
