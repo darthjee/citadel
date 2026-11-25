@@ -2,6 +2,7 @@ import ApiClient from '../../../../assets/js/client/ApiClient.js';
 import ApiError from '../../../../assets/js/client/ApiError.js';
 import AuthSession from '../../../../assets/js/client/AuthSession.js';
 import LoginModalEvents from '../../../../assets/js/client/LoginModalEvents.js';
+import PermissionEvents from '../../../../assets/js/client/PermissionEvents.js';
 import { installFakeWindow, uninstallFakeWindow } from '../../../support/fakeWindow.js';
 import {
   expectSessionExpired, expectSessionExpiredRejection, fetchSequence, stubRefreshFlow,
@@ -160,6 +161,64 @@ describe('ApiClient', () => {
         .toBeRejectedWith(jasmine.objectContaining(
           { status: 400, message: 'Invalid current password' },
         ));
+    });
+  });
+
+  describe('.getJson', () => {
+    it('sends a GET with same-origin credentials and no body option', async () => {
+      globalThis.fetch = fetchSequence([{ ok: true, status: 200, json: [] }]);
+
+      await ApiClient.getJson('/orgs.json');
+
+      const [path, options] = globalThis.fetch.calls.argsFor(0);
+
+      expect(path).toBe('/orgs.json');
+      expect(options).toEqual(jasmine.objectContaining({ method: 'GET', credentials: 'same-origin' }));
+      expect('body' in options).toBeFalse();
+    });
+
+    it('resolves with the parsed JSON body on success', async () => {
+      globalThis.fetch = fetchSequence([{ ok: true, status: 200, json: [{ id: 5 }] }]);
+
+      expect(await ApiClient.getJson('/orgs.json')).toEqual([{ id: 5 }]);
+    });
+
+    it('rejects a 401 as a plain ApiError with skipAuthRecovery', async () => {
+      stubRefreshFlow([{ ok: false, status: 401, json: errorBody(401, 'UNAUTHORIZED', 'Unauthorized') }]);
+
+      await expectAsync(ApiClient.getJson('/orgs.json', { skipAuthRecovery: true }))
+        .toBeRejectedWith(jasmine.objectContaining({ status: 401, sessionExpired: false }));
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('403 handling', () => {
+    it('emits permission:forbidden before rejecting', async () => {
+      const order = [];
+
+      spyOn(PermissionEvents, 'emitForbidden').and.callFake(() => order.push('emit'));
+      globalThis.fetch = fetchSequence([{ ok: false, status: 403, json: errorBody(403, 'FORBIDDEN', 'Forbidden') }]);
+
+      await ApiClient.patchJson('/orgs/5.json', { name: 'x' }).catch((error) => order.push(error.status));
+
+      expect(order).toEqual(['emit', 403]);
+    });
+
+    it('does not emit permission:forbidden on other failures', async () => {
+      spyOn(PermissionEvents, 'emitForbidden');
+      globalThis.fetch = fetchSequence([{ ok: false, status: 404, json: errorBody(404, 'NOT_FOUND', 'Not Found') }]);
+
+      await expectAsync(ApiClient.getJson('/orgs/5.json')).toBeRejectedWith(jasmine.objectContaining({ status: 404 }));
+      expect(PermissionEvents.emitForbidden).not.toHaveBeenCalled();
+    });
+
+    it('does not emit permission:forbidden on success', async () => {
+      spyOn(PermissionEvents, 'emitForbidden');
+      globalThis.fetch = fetchSequence([{ ok: true, status: 200, json: {} }]);
+
+      await ApiClient.getJson('/orgs/5.json');
+
+      expect(PermissionEvents.emitForbidden).not.toHaveBeenCalled();
     });
   });
 

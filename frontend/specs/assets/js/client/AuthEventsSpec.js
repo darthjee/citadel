@@ -25,7 +25,7 @@ describe('AuthEvents', () => {
 
         expect(handler).toHaveBeenCalled();
         expect(handler.calls.mostRecent().args[0].type).toBe('auth:changed');
-        expect(handler.calls.mostRecent().args[0].detail).toEqual({ loggedIn: true, isAdmin: true, pending: false });
+        expect(handler.calls.mostRecent().args[0].detail).toEqual({ loggedIn: true, isAdmin: true, pending: false, userId: null });
       } finally {
         AuthEvents.unsubscribe(handler);
       }
@@ -40,7 +40,7 @@ describe('AuthEvents', () => {
         AuthEvents.emit(false);
 
         expect(handler).toHaveBeenCalled();
-        expect(handler.calls.mostRecent().args[0].detail).toEqual({ loggedIn: false, isAdmin: false, pending: false });
+        expect(handler.calls.mostRecent().args[0].detail).toEqual({ loggedIn: false, isAdmin: false, pending: false, userId: null });
       } finally {
         AuthEvents.unsubscribe(handler);
       }
@@ -54,7 +54,7 @@ describe('AuthEvents', () => {
       try {
         AuthEvents.emit(true);
 
-        expect(handler.calls.mostRecent().args[0].detail).toEqual({ loggedIn: true, isAdmin: false, pending: false });
+        expect(handler.calls.mostRecent().args[0].detail).toEqual({ loggedIn: true, isAdmin: false, pending: false, userId: null });
       } finally {
         AuthEvents.unsubscribe(handler);
       }
@@ -70,7 +70,7 @@ describe('AuthEvents', () => {
       try {
         AuthEvents.emit(false, false, true);
 
-        expect(handler.calls.mostRecent().args[0].detail).toEqual({ loggedIn: false, isAdmin: false, pending: true });
+        expect(handler.calls.mostRecent().args[0].detail).toEqual({ loggedIn: false, isAdmin: false, pending: true, userId: null });
       } finally {
         AuthEvents.unsubscribe(handler);
       }
@@ -85,6 +85,38 @@ describe('AuthEvents', () => {
         AuthEvents.emit(true, true);
 
         expect(handler.calls.mostRecent().args[0].detail.pending).toBeFalse();
+      } finally {
+        AuthEvents.unsubscribe(handler);
+      }
+    });
+  });
+
+  describe('.emit with userId', () => {
+    it('dispatches a window event carrying the given userId', () => {
+      const handler = jasmine.createSpy('handler');
+
+      AuthEvents.subscribe(handler);
+
+      try {
+        AuthEvents.emit(true, false, false, 7);
+
+        expect(handler.calls.mostRecent().args[0].detail).toEqual({
+          loggedIn: true, isAdmin: false, pending: false, userId: 7,
+        });
+      } finally {
+        AuthEvents.unsubscribe(handler);
+      }
+    });
+
+    it('defaults userId to null when omitted', () => {
+      const handler = jasmine.createSpy('handler');
+
+      AuthEvents.subscribe(handler);
+
+      try {
+        AuthEvents.emit(true, true, false);
+
+        expect(handler.calls.mostRecent().args[0].detail.userId).toBeNull();
       } finally {
         AuthEvents.unsubscribe(handler);
       }

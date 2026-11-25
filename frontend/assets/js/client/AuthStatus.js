@@ -13,7 +13,8 @@ const AuthStatus = {
    * Re-check the stored session and emit the resulting auth state.
    *
    * - No stored refresh token: emits logged-out, without any request.
-   * - `loggedIn: true`: keeps the token and emits logged-in with the admin flag.
+   * - `loggedIn: true`: keeps the token and emits logged-in with the admin flag and the user id.
+   *   Every other branch emits no user id.
    * - `status: 'pending'`: keeps the token (the user is awaiting admin approval) and emits
    *   logged-out with `pending: true`.
    * - Anything else: clears the now-stale token and emits logged-out.
@@ -31,10 +32,12 @@ const AuthStatus = {
       return;
     }
 
-    const { loggedIn, isAdmin, status } = await client.status(token);
+    const {
+      loggedIn, isAdmin, status, userId,
+    } = await client.status(token);
 
     if (loggedIn) {
-      AuthEvents.emit(true, Boolean(isAdmin), false);
+      AuthEvents.emit(true, Boolean(isAdmin), false, userId ?? null);
       return;
     }
 

@@ -96,7 +96,7 @@ describe('RegisterController', () => {
       await submitSuccessfully({ loggedIn: true, isAdmin: false });
 
       expect(client.status).toHaveBeenCalledWith('refresh-token');
-      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, false, false);
+      expect(AuthEvents.emit).toHaveBeenCalledOnceWith(true, false, false, null);
     });
 
     it('emits the pending state and keeps the token when the user awaits approval', async () => {
