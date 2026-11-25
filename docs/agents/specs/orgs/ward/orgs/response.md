@@ -1,186 +1,220 @@
 # Organizations - Response
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Endpoints](./endpoints.md), [Security](./security.md), [Caching](./caching.md),
-[Models](./models.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-Every organization route serializes through **one** module:
-`backend/src/auth/organization-response.ts`.
+Every organization response has **exactly five fields**, on all four routes:
 
-The shape is fixed and minimal:
+| Field | Type | Notes |
+|---|---|---|
+| `id` | integer | Primary key |
+| `name` | string | Trimmed and validated on write; escaped on render |
+| `role` | `owner` \| `admin` \| `user` | **The caller's** role, not the owner's |
+| `created_at` | timestamp | Set on insert |
+| `updated_at` | timestamp | Moved on every write |
+
+That is the whole contract. The list route returns an **array of this shape**, bare, with no
+envelope. There is no second shape anywhere - not for read, not for create, not for rename.
+
+## The serializer is an allowlist
+
+`backend/src/auth/organization-response.ts` builds the object **explicitly**, field by field.
 
 ```
-{ id, name, role, created_at, updated_at }
+serialize(organization, role) -> {
+  id:         organization.id,
+  name:       organization.name,
+  role,                                  // the caller's, passed in
+  created_at: organization.created_at,
+  updated_at: organization.updated_at,
+}
 ```
 
-- `role` is **the caller's** role in that organization - not the owner's role.
-- **Nothing else is ever returned.** No member list, no member count, no other users' ids, no
-  membership ids.
-- The same shape is used by **all four routes**, success responses included: list, create, read
-  one, rename.
+The consequences of that approach versus spreading the entity:
 
-## The serializer
-
-| Property | Value |
+| Approach | Effect of a new column |
 |---|---|
-| File | `backend/src/auth/organization-response.ts` |
-| Role | Organization serializer |
-| Input | An `Organization` plus the caller's role in it |
-| Output | `{ id, name, role, created_at, updated_at }` |
-| Used by | `OrganizationController`, on all four routes |
+| **Allowlist** (what this uses) | Adding a column does **not** change the response. Publishing it requires an explicit edit |
+| Spread (`{...organization}`) | Every new column is published automatically, including one that should stay private |
 
-The serializer exists so that the **entity is never sent directly**. `Organization` and
-`OrganizationMembership` are internal types; the API only ever exposes the shape above.
+A `created_by` column (#95), a `slug`, an `owner_id`, a `deleted_at` - all would be private by
+default. That is the reason the serializer is written this way.
 
-## The shape, field by field
+## Why `role` is the caller's
 
-| Field | Source | Notes |
+This is the single most misread part of the shape.
+
+| Reading | Result |
+|---|---|
+| "`role` is the organization's owner role" | **Wrong.** There is no owner-role field |
+| "`role` is my role in this organization" | Correct |
+
+Consequences:
+
+- **The same URL returns different bodies to different callers.** `GET /orgs/1.json` as the `owner`
+  and as a `user` produce the same `id`, `name` and timestamps, but different `role`.
+- **The response carries no owner identity.** Who holds `owner` is never disclosed.
+- The list route may return **different `role` values per item** for the same caller.
+
+Because the body depends on the caller, the cache class is `user-scoped` and **never** `public`.
+See [Caching](./caching.md).
+
+Today every item has `role: "owner"`, because joining is not built (#82). A `user` or `admin` value
+becomes reachable when a second member can exist.
+
+## What is never in a response
+
+| Never present | Why |
+|---|---|
+| A member list | No endpoint exists, and the serializer has no field for it. Adding `members` here would turn four routes into an enumeration surface |
+| A member count | Not stored, not computed |
+| The `owner`'s identity | The caller's role is shown; who owns the organization is not |
+| Another user's `id` | The response carries no user reference at all |
+| `ownerId`, `owner_id` | Neither exists on the model |
+| `created_by` | Does not exist (#95) |
+| Membership ids | Internal to the join |
+| `is_admin` | A platform flag, unrelated to this domain |
+| Settings, descriptions, metadata | Do not exist on the model |
+
+The **absence of a member list** is a deliberate asymmetry: it is the reason the response can be
+five fields instead of a nested object, and the reason the four routes are not an enumeration
+surface.
+
+## The organization response
+
+```
+{
+  "id": 1,
+  "name": "Acme",
+  "role": "owner",
+  "created_at": "2026-11-01T09:12:44.000Z",
+  "updated_at": "2026-11-01T09:12:44.000Z"
+}
+```
+
+Type-level:
+
+```
+interface OrganizationResponse {
+  id: number
+  name: string
+  role: OrgRole
+  created_at: Date | string
+  updated_at: Date | string
+}
+```
+
+Whether the timestamps are serialized as strings or numbers is not documented. See the final section.
+
+## The list response
+
+```
+[
+  { "id": 1, "name": "Acme",     "role": "owner", "created_at": "...", "updated_at": "..." },
+  { "id": 4, "name": "Northwind","role": "admin", "created_at": "...", "updated_at": "..." }
+]
+```
+
+| Property | Detail |
+|---|---|
+| Envelope | **None** - the array is bare |
+| Pagination metadata | **None** |
+| Order | By organization `id` |
+| Empty | `[]` with `200` |
+| Per-item role | The caller's role in that organization |
+
+There is no `{ "organizations": [...] }` wrapper and no `{ data, total }` shape. A client consumes
+the array directly.
+
+The **bare array** is worth noting because it blocks a future addition: adding pagination metadata
+later would be a breaking change. That is a documented consequence of the current contract, not an
+oversight.
+
+## Error bodies
+
+Errors do **not** use the organization shape. They use the platform's standard body:
+
+```
+{
+  "error": { "code": "NOT_FOUND", "message": "Not Found" },
+  "statusCode": 404,
+  "timestamp": "2026-11-24T11:32:41.902Z"
+}
+```
+
+| Status | `code` | `message` |
 |---|---|---|
-| `id` | `Organization.id` | Integer primary key. Safe to expose: the caller is already a member, and a foreign id answers the uniform `404` |
-| `name` | `Organization.name` | Already trimmed and validated on write. Always rendered escaped (React text, never HTML). **Never logged** |
-| `role` | The **caller's** membership role | One of `owner`, `admin`, `user`. See below |
-| `created_at` | `Organization.created_at` | Timestamp |
-| `updated_at` | `Organization.updated_at` | Timestamp |
+| `400` | `VALIDATION_FAILED` | `Validation failed` (reconstructed - see Examples) |
+| `401` | `UNAUTHORIZED` | `Invalid or expired access token`, or `Missing access token` |
+| `403` | `FORBIDDEN` | `Forbidden` |
+| `404` | `NOT_FOUND` | `Not Found` |
 
-That is the complete field set. There is no `description`, no `member_count`, no `owner_id`, no
-`slug`, no `members`.
+The `403` and `404` messages name **neither the resource nor the role**. That is the security
+property: a client cannot distinguish which organization failed or which role was required.
 
-## `role` is the caller's role
+Concrete payloads: [Examples](./examples.md).
 
-This is the one field that is **not** a straight copy from the organization row.
+## Rendering rules
 
-- The value describes **the caller's membership**, not the organization.
-- Consequence: **the same organization serializes differently for two different callers** - a
-  member at `user` level receives `role: "user"`, an admin receives `role: "admin"`.
-- This is why an organization response is **never cacheable by path** even though the id is in the
-  URL: two callers asking for the same `/orgs/:orgId.json` must receive different `role` values.
-  See [Caching](./caching.md).
-
-### Per route
-
-| Route | What `role` holds |
+| Rule | Detail |
 |---|---|
-| `GET /orgs.json` | Each item carries the caller's role **in that specific organization** - values may differ between items |
-| `POST /orgs.json` | Always `"owner"` - the caller just created it, and creation hard-codes the `owner` role |
-| `GET /orgs/:orgId.json` | The caller's role in that organization |
-| `PATCH /orgs/:orgId.json` | The caller's role in that organization; unchanged by the rename |
+| `name` as text | Always rendered as React text, never as HTML |
+| No `dangerouslySetInnerHTML` | On any field |
+| Escaping | A name containing `<script>` is displayed literally |
+| Truncation | The context switcher truncates long names visually; the API returns the full name |
 
-A user may therefore receive `owner` for one organization and `user` for another **in the same
-list response**. Today that cannot happen in practice - there is no way to join, so the only
-membership a user ever has is the one they created - but the shape is already the one that stays
-correct when joining exists.
+## Consistency guarantees
 
-## What is never exposed
+What a client may rely on:
 
-The list matters more than the fields present, because these are the leaks a multi-tenant API
-usually has.
-
-| Never exposed | Why |
+| Guarantee | Detail |
 |---|---|
-| **Member list** | No endpoint returns it, and no response embeds it. Even the owner cannot enumerate the members through this API |
-| **Other users' ids** | A member's `user_id` is never serialized, so belonging to an organization cannot be discovered from a response |
-| **Membership ids** | `OrganizationMembership.id` is internal; it is never a public identifier |
-| **`organization_id` on domain records** | For user-or-organization-owned modules, records never expose owner fields - not `user_id`, not `organization_id` |
-| **`is_admin`** | The caller's global platform role is not part of an organization response |
-| **Member count** | Not present. A count would leak the size of an organization the caller may only partially know |
-| **Owner identity** | The response says the caller's role, never who owns the organization. There is deliberately no `owner` field |
-| **Organization settings or metadata** | None exist to expose - the entity is only `id`, `name`, timestamps |
+| Same shape everywhere | The five fields, on all four routes |
+| `role` always present | Never omitted, never `null` for a member |
+| `id` stable | Never reused, never reassigned |
+| `updated_at` moves on write | Create and rename both set it |
+| `created_at` never changes | Set once at insert |
 
-Two of these deserve emphasis:
+What a client must **not** rely on:
 
-- **The absence of an owner field is not an oversight.** The database has no owner column either;
-  ownership lives only in the membership role. See [Models](./models.md).
-- **The absence of a member list is a security property, not a missing feature.** Adding one to
-  this response would turn four routes into an enumeration surface. If member management arrives
-  (#82), it should come as a dedicated endpoint with its own authorization, not as an extra field
-  here.
+| Not guaranteed | Why |
+|---|---|
+| The set of fields growing | The allowlist only changes deliberately |
+| A `name` being unique | Duplicates are legal |
+| An organization always visible | Membership can be lost; the caller then gets `404` |
+| `role` staying constant | A role change applies on the next request |
+| Timestamp precision | The format is not documented |
 
-## Why the shape is minimal
+## Adding a field
 
-The design intent, as documented: organization routes return **only** `id`, `name`, the caller's
-`role` and timestamps; never member lists or other users' ids.
+If a new field must become public, three places change together:
 
-Three reasons that hold together:
+1. **The model** - the column must exist (or be derived).
+2. **`organization-response.ts`** - add it to the allowlist. Without this, nothing is published.
+3. **This page and [Examples](./examples.md)** - the documented shape.
 
-1. **Enumeration resistance.** A response body that carries other users' ids or a member count
-   tells an attacker something about an organization they may not fully know. A body carrying only
-   the caller's own relationship tells them nothing they did not already have.
-2. **Cache safety.** The response is caller-dependent (the `role` field) and owner-free. That
-   combination is what makes `user-scoped` caching correct rather than merely conservative.
-3. **Stability under new features.** The shape stays safe whether or not joining exists. Today it
-   is trivially safe because every organization has one member; the choice was made for the future
-   state, not the current one.
+Step 2 is the gate. A column added to the entity without touching the serializer stays private,
+which is the intended direction of failure.
 
-## Consistency across routes
-
-- **One serializer, one shape.** List, create, read and rename all return the same object shape.
-- **The list route returns an array of that shape** - not a wrapper object, and not a paginated
-  envelope.
-- **Zero organizations returns `[]`** - an empty array, not `null` and not a `404`. This is the
-  normal state for a new user.
-- A client can therefore deserialize every organization response with a single type, which is what
-  the frontend does.
-
-## Boundary with the error bodies
-
-Success responses and error responses are separate concerns:
-
-- **Success** - the minimal shape above, serialized by `organization-response.ts`.
-- **Errors** - the uniform `400` / `403` / `404` / `401` bodies, produced elsewhere. See
-  [Security](./security.md).
-
-The serializer is **not** involved in an error path: a `404` never carries a partial organization,
-and a `403` never carries one either. Nothing about the organization leaks through a failure
-response.
-
-## Relation to the user serializer
-
-A useful contrast, documented in the auth routes: the `user` object returned by login, register and
-refresh is `{ id, username, email, isAdmin }`, and **`passwordDigest` and the account `status` are
-never serialized**.
-
-The same discipline applies here at a different scale:
-
-| Object | Always present | Never serialized |
-|---|---|---|
-| `user` | `id`, `username`, `email`, `isAdmin` | `passwordDigest`, `status` |
-| organization | `id`, `name`, `role`, `created_at`, `updated_at` | members, member ids, owner, membership ids |
-
-Neither serializer uses a generic entity-to-JSON conversion. Both are explicit allowlists of
-fields, which is why a new column on either entity does not silently become public.
-
-## Adding a field - the rule that follows
-
-Because the serializer is an allowlist, adding a column to `Organization` does **not** expose it.
-That is the intended behaviour: a new field becomes public only when someone edits
-`organization-response.ts`.
-
-Before doing so, the questions the docs imply:
-
-1. **Is it caller-dependent?** If yes, the cache class must remain `user-scoped` - it already does.
-2. **Does it reveal another user?** Any member id, member count or owner identity would open the
-   enumeration surface described above.
-3. **Does it reveal internal structure?** Membership ids and foreign keys are not public
-   identifiers.
-4. **Would it be better as its own endpoint?** Member management, if it arrives, belongs to a
-   dedicated route with its own authorization - not to this shape.
+Before adding anything, check whether it belongs in a **dedicated endpoint** instead. A member list,
+for example, should not become a nested field here - it would turn the four routes into an
+enumeration surface. That is why #82 is expected to add an endpoint rather than a field.
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages state the serializer's file, its purpose and the exact output shape. They
-do **not** contain:
+The project documentation states the five fields, the allowlist approach, the per-caller `role`, and
+the standard error body. It does **not** contain:
 
-- the source of `organization-response.ts`: the function name and signature, whether it takes the
-  entity plus a role or a composed object, and whether it returns a class instance or a plain
-  object;
-- whether the timestamps are serialized as ISO 8601 strings or in another format;
-- whether `created_at` / `updated_at` are omitted on any route;
-- whether the serializer is shared with any other module's response builder;
-- the corresponding TypeScript type or DTO that describes the response on the client side;
-- whether the list route wraps its array in any envelope at all - the docs describe an "array of
-  organizations", which this page follows literally.
+- the **source** of `organization-response.ts`;
+- whether `created_at` / `updated_at` are serialized as ISO strings, epoch numbers, or left as `Date`
+  objects for the framework to convert;
+- the exact timestamp precision, and whether a `Z` suffix is always present;
+- whether the serializer is a plain function, a class, or a TypeORM transformation;
+- whether `role` is typed as `OrgRole` or as a plain `string` in the response interface;
+- whether any response includes an ETag or a version identifier;
+- whether the list is serialized item by item through the same function, or through a separate path.
 
-Read `backend/src/auth/organization-response.ts` for the authoritative version. Nothing on this page
-is inferred beyond what the docs state.
+Read `backend/src/auth/organization-response.ts` and
+`backend/src/auth/tests/organization-response.spec.ts` for the authoritative version. Nothing on
+this page is inferred beyond what the docs state.
