@@ -129,6 +129,42 @@ describe('HeaderHelper', () => {
     });
   });
 
+  describe('To-do link', () => {
+    it('is not rendered when logged out', () => {
+      expect(markupOf(false, false)).not.toContain('To-do');
+    });
+
+    it('links to the Personal todo lists by default once logged in', () => {
+      const markup = markupOf(true, false);
+
+      expect(markup).toContain('href="#/todo/lists"');
+      expect(markup).toContain('>To-do<');
+    });
+
+    it('follows the given context href', () => {
+      const markup = renderToStaticMarkup(React.createElement(
+        'div', null, HeaderHelper.render(true, false, onLogout, onOpenLogin, false, '#/orgs/5/todo/lists'),
+      ));
+
+      expect(markup).toContain('href="#/orgs/5/todo/lists"');
+    });
+
+    it('comes right after the context switcher', () => {
+      const markup = markupOf(true, false);
+
+      expect(markup.indexOf('context-switcher')).toBeLessThan(markup.indexOf('>To-do<'));
+      expect(markup.indexOf('>To-do<')).toBeLessThan(markup.indexOf('My account'));
+    });
+
+    it('is not rendered while pending approval', () => {
+      const markup = renderToStaticMarkup(React.createElement(
+        'div', null, HeaderHelper.render(true, false, onLogout, onOpenLogin, true),
+      ));
+
+      expect(markup).not.toContain('To-do');
+    });
+  });
+
   describe('when pending approval', () => {
     const pendingMarkup = (isLoggedIn) => renderToStaticMarkup(React.createElement(
       'div', null, HeaderHelper.render(isLoggedIn, false, onLogout, onOpenLogin, true),

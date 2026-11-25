@@ -36,6 +36,25 @@ function renderAdminLink(isAdmin) {
   return <Nav.Link href="#/admin/users">Admin Users</Nav.Link>;
 }
 
+/** Fallback href of the To-do link (the Personal list index). */
+const DEFAULT_TODO_HREF = '#/todo/lists';
+
+/**
+ * Render the To-do nav link, only shown once logged in and approved.
+ *
+ * @param {boolean} isLoggedIn - Whether a session is currently active.
+ * @param {boolean} pending - Whether the session is awaiting admin approval.
+ * @param {string} todoHref - The todo list index hash in the active owner context.
+ * @returns {React.ReactElement|null} The To-do link, or `null` when logged out or pending.
+ */
+function renderTodoLink(isLoggedIn, pending, todoHref) {
+  if (!isLoggedIn || pending) {
+    return null;
+  }
+
+  return <Nav.Link href={todoHref}>To-do</Nav.Link>;
+}
+
 /**
  * Render the "My account" dropdown, unconditionally shown once logged in — unlike
  * {@link renderAdminLink}, it takes no `isAdmin`-style gate. Holds one item per
@@ -94,8 +113,8 @@ function renderAuthLinks(isLoggedIn, isAdmin, onLogout, onOpenLogin, pending) {
  */
 const HeaderHelper = {
   /**
-   * Render the application navigation bar: the brand, then the context switcher (once logged
-   * in and approved) followed by the auth links.
+   * Render the application navigation bar: the brand, then the context switcher and the To-do
+   * link (once logged in and approved) followed by the auth links.
    *
    * @param {boolean} isLoggedIn - Whether a session is currently active.
    * @param {boolean} isAdmin - Whether the current session belongs to an admin user.
@@ -105,9 +124,11 @@ const HeaderHelper = {
    *   logged out.
    * @param {boolean} [pending] - Whether the session is awaiting admin approval; hides every
    *   auth link (the brand stays).
+   * @param {string} [todoHref] - The To-do link target in the active owner context (e.g.
+   *   `#/orgs/5/todo/lists`); defaults to the Personal `#/todo/lists`.
    * @returns {React.ReactElement} The rendered navigation bar.
    */
-  render(isLoggedIn, isAdmin, onLogout, onOpenLogin, pending = false) {
+  render(isLoggedIn, isAdmin, onLogout, onOpenLogin, pending = false, todoHref = DEFAULT_TODO_HREF) {
     return (
       <Navbar bg="light" expand="md">
         <Container fluid>
@@ -116,6 +137,7 @@ const HeaderHelper = {
           <Navbar.Collapse id="header-navbar">
             <Nav className="me-auto">
               <ContextSwitcher loggedIn={isLoggedIn} pending={pending} />
+              {renderTodoLink(isLoggedIn, pending, todoHref)}
               {renderAuthLinks(isLoggedIn, isAdmin, onLogout, onOpenLogin, pending)}
             </Nav>
           </Navbar.Collapse>

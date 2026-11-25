@@ -5,6 +5,10 @@ import HeaderHelper from '../../../../../../assets/js/components/common/header/h
 import HeaderController from '../../../../../../assets/js/components/common/header/controllers/HeaderController.js';
 import AuthSession from '../../../../../../assets/js/client/AuthSession.js';
 import AwaitingApprovalGate from '../../../../../../assets/js/components/common/awaitingApproval/AwaitingApprovalGate.jsx';
+import {
+  DEFAULT_OWNER_CONTEXT,
+  OwnerContext,
+} from '../../../../../../assets/js/components/common/ownerContext/hooks/useOwnerContext.js';
 
 describe('Header', () => {
   afterEach(() => {
@@ -40,7 +44,7 @@ describe('Header', () => {
 
     renderToStaticMarkup(React.createElement(Header, null));
 
-    expect(HeaderHelper.render).toHaveBeenCalledWith(false, false, jasmine.any(Function), jasmine.any(Function), false);
+    expect(HeaderHelper.render).toHaveBeenCalledWith(false, false, jasmine.any(Function), jasmine.any(Function), false, '#/todo/lists');
   });
 
   it('passes the logged-in state to HeaderHelper when a refresh token is stored', () => {
@@ -49,7 +53,19 @@ describe('Header', () => {
 
     renderToStaticMarkup(React.createElement(Header, null));
 
-    expect(HeaderHelper.render).toHaveBeenCalledWith(true, false, jasmine.any(Function), jasmine.any(Function), false);
+    expect(HeaderHelper.render).toHaveBeenCalledWith(true, false, jasmine.any(Function), jasmine.any(Function), false, '#/todo/lists');
+  });
+
+  it('passes the To-do link of the active organization context to HeaderHelper', () => {
+    spyOn(HeaderHelper, 'render').and.callThrough();
+
+    renderToStaticMarkup(React.createElement(
+      OwnerContext.Provider,
+      { value: { ...DEFAULT_OWNER_CONTEXT, context: { kind: 'organization', orgId: 5 } } },
+      React.createElement(Header, null),
+    ));
+
+    expect(HeaderHelper.render.calls.mostRecent().args[5]).toBe('#/orgs/5/todo/lists');
   });
 
   it('logs out and prevents the default navigation when the logout handler fires', async () => {
