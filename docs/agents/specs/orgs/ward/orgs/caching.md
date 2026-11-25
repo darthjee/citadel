@@ -1,181 +1,206 @@
 # Organizations - Caching
 
-Part of the [Auth module](../auth.md). Hub: [Organizations](./orgs.md).
-See also: [Endpoints](./endpoints.md), [Security](./security.md), [Response](./response.md),
-[Owner context](./owner-context.md).
+Hub: [Organizations](../orgs.md).
 
 ## Summary
 
-Caching on the organization surface is treated as **part of the security contract**, not as an
-optimization detail.
+Three cache classes, declared once per controller, enforced by the **proxy** rather than by the
+backend.
 
-| Rule | Detail |
+| Class | Keyed by | May the proxy store it |
+|---|---|---|
+| `never` | - | **No.** Writes and anything that must not be served stale |
+| `user-scoped` | The caller | Yes, per caller only |
+| `public` | Nothing - same for everyone | Yes, shared |
+
+For organizations:
+
+| Route | Class |
 |---|---|
-| Controller default | Cache class **`never`** - every organization route sends **`X-Skip-Cache: true`** |
-| The two `GET`s | Narrowed to **`user-scoped`** - cached **per caller** |
-| Writes | `never`, plus **`Cache-Control: no-store`** |
-| An organization id in the URL | Does **not** make a response public |
-| Owner-scoped controllers | `@OwnerScopedController()` sets `user-scoped`, inseparably from the scoping |
-| Names in cache keys | Never logged |
+| `GET /orgs.json` | `user-scoped` |
+| `GET /orgs/:orgId.json` | `user-scoped` |
+| `POST /orgs.json` | `never` |
+| `PATCH /orgs/:orgId.json` | `never` |
 
-The organizing idea: **a response that depends on who is calling must be cached per caller, and
-a response that depends on who is calling must never be cached for everyone.**
+**Neither `GET` is ever `public`**, because their bodies depend on who is asking.
 
-## The two cache classes
+## Why the backend declares and the proxy enforces
+
+The backend does not store responses. It **tells the proxy** what it may do.
+
+| Piece | File | Role |
+|---|---|---|
+| `CacheClass` | `backend/src/core/cache-class.ts` | The enum: `Never`, `UserScoped`, `Public` |
+| `@CachePolicy(CacheClass)` | `backend/src/core/cache-policy.decorator.ts` | Declares the class on a controller or route |
+| `CachePolicyInterceptor` | `backend/src/core/cache-policy.interceptor.ts` | Emits the headers the proxy reads |
+| `@CacheInvalidation()` | `backend/src/core/cache-invalidation.decorator.ts` | Marks a write route as invalidating |
+| `CacheInvalidationInterceptor` | `backend/src/core/cache-invalidation.interceptor.ts` | Performs the invalidation |
+| `CacheTokenService` | `backend/src/core/cache-token.service.ts` | The per-caller token behind `user-scoped` |
+
+The important consequence: **a wrong cache class is not a backend bug that a backend test catches.**
+The backend emits headers; the proxy obeys them. The failure appears as another user's data served
+from cache.
+
+## The three classes
 
 ### `never`
 
-- Sends `X-Skip-Cache: true` and `Cache-Control: no-store`.
-- Used for **every write** route, and as the **controller-level default** for the organization
-  controller.
-- Consequence: the proxy neither stores nor serves a cached copy.
+- Nothing may be stored.
+- Emitted on writes and on anything that must not be served stale.
+- `POST /orgs.json` and `PATCH /orgs/:orgId.json` are both `never`.
 
 ### `user-scoped`
 
-- Cached **per caller**.
-- Used for the **two `GET`** organization routes, and set automatically by
-  `@OwnerScopedController()`.
-- Consequences: each user has their own cache entry, and the entry is only ever served back to
-  the caller who created it.
+- The response may be stored, but **only per caller**.
+- Two callers requesting the same URL must not share the entry.
+- Requires a per-caller key - `CacheTokenService` provides it.
+- Both organization `GET`s are `user-scoped`.
 
-## Per-route classes
+### `public`
 
-| Method | Path | Cache class | Why |
-|---|---|---|---|
-| `GET` | `/orgs.json` | `user-scoped` | The result is the caller's membership list - different for every user |
-| `POST` | `/orgs.json` | `never` | A write. It also creates a membership |
-| `GET` | `/orgs/:orgId.json` | `user-scoped` | Contains the **caller's role**, so it differs per caller even with the same id |
-| `PATCH` | `/orgs/:orgId.json` | `never` | A write |
+- The same response for everyone, storable and shareable.
+- **No organization route is `public`.**
 
-- The controller declares **`never`** at **class level**, so the default is safe: a new route is
-  non-cacheable unless someone deliberately narrows it.
-- The two `GET`s are then **narrowed** to `user-scoped` one by one.
-- The narrowing is **one-directional**: a route may narrow to `never`, but **never** to `public`.
+## Why the organization `GET`s cannot be public
 
-## Why an organization id in the URL does not make a response public
+The proof is the response shape, not a policy preference.
 
-This is the counter-intuitive part, and the most likely place for a mistake.
+`GET /orgs/:orgId.json` returns `role` - **the caller's role in that organization**.
 
-The intuition: `/orgs/42.json` looks like a stable, path-addressable resource. A cache keyed by
-path would appear to be safe.
+| Caller | Same URL | Body |
+|---|---|---|
+| The `owner` | `/orgs/1.json` | `role: "owner"` |
+| An `admin` | `/orgs/1.json` | `role: "admin"` |
+| A `user` | `/orgs/1.json` | `role: "user"` |
 
-Why it is wrong - **two independent reasons**:
+Same URL, three different bodies. If the proxy stored that as `public`, the second caller would
+receive the first caller's role.
 
-1. **The response carries the caller's role.** `GET /orgs/:orgId.json` returns
-   `{ id, name, role, created_at, updated_at }` where `role` is **the caller's** role, not the
-   owner's. Two members of organization 42 receive **different bodies** for the **same path**. A
-   path-keyed cache would serve one member's role to another.
-2. **Membership is the authorization boundary, not a property of the path.** A non-member gets the
-   uniform `404` on the very same path. Caching a successful body by path alone would risk serving
-   a member's response to a caller who is not entitled to any response at all.
+`GET /orgs.json` has the same property in a different form: the array is the **caller's**
+organizations. A `public` cache would serve another user's list - which is both a wrong answer and a
+disclosure of organization names and ids the caller does not belong to.
 
-So the id in the URL buys nothing: the response is **caller-dependent**, and must be cached per
-caller.
+That is why an id in the URL is **not** what makes a response cacheable. The relevant question is
+whether the body depends on the caller, and here it always does.
 
-## Why personal routes must be `user-scoped` - no exception
+## The bundling in `@OwnerScopedController()`
 
-Personal routes carry **no owner in the URL at all**:
+For modules - not for the organization surface - one decorator sets three things that must not drift
+apart:
 
-- `/bank/accounts.json`, not `/users/:userId/bank/accounts.json`.
-- The only thing that selects the owner is the **authenticated token**.
+1. Mount under both prefixes: `<path>` and `orgs/:orgId/<path>`.
+2. Add `@OwnerScoped()`, so `OwnerContextGuard` acts.
+3. Set the cache class to **`user-scoped`**.
 
-That has a direct caching consequence: the path is **identical for every user**. A shared cache
-keyed by path would return one user's accounts to another. They **must** be `user-scoped`, with
-**no exception**.
+```ts
+@OwnerScopedController('bank/accounts')
+```
 
-This is why `@OwnerScopedController(path)` bundles three decisions into one decorator:
+The three are inseparable by design:
 
-1. mounting under `<path>` and `orgs/:orgId/<path>`;
-2. adding `@OwnerScoped()`;
-3. setting the cache class to `user-scoped`.
+- A controller mounted under both prefixes cannot silently miss the scoping.
+- An owner-scoped controller cannot be declared `public`.
 
-The three **cannot be separated**: a controller cannot be mounted under both prefixes while
-silently missing the scoping, nor be owner-scoped while declared `public`. See
-[Owner context](./owner-context.md).
+So for an owner-scoped module, **the cache class is not a free choice**. It follows from the
+scoping. A controller may narrow it to `never` - for a route whose response must never be stored -
+but **never** to `public`.
 
-## The proxy rule that makes this urgent
+The organization controller is **not** owner-scoped, so it declares `@CachePolicy` explicitly on its
+routes. See [Owner context](./owner-context.md).
 
-The proxy is `darthjee/tent`. Its **`default_proxy`** rule:
+## Invalidation on write
 
-- caches any **`2xx` `*.json`** response,
-- keyed **only by query string**,
-- **regardless of HTTP method**.
+A write must not leave a stale `GET` behind.
 
-Two consequences:
+| Decorator | Declared on | Effect |
+|---|---|---|
+| `@CacheInvalidation()` | The write route | Invalidates the related cached responses |
+| `organization-invalidation.ts` | `backend/src/auth/` | The organization-specific invalidation logic |
 
-1. **A `POST` can be cached.** Because the method is not part of the key, an uncapped write
-   response could be stored after the first call and served verbatim to a different caller -
-   **credentials included**. This is the documented rationale for the `auth` routes being
-   `@CachePolicy(CacheClass.Never)` at controller level.
-2. **A path-keyed entry has no caller dimension.** Because only the query string keys the entry,
-   and these routes carry no query string, all callers of `/orgs.json` would land on the **same**
-   entry.
+Which routes:
 
-That is why the organization routes send **`X-Skip-Cache: true` on every route**, writes
-included, and why the two `GET`s are explicitly `user-scoped` rather than left to the default rule.
-
-## How the class reaches the proxy
-
-- `@CachePolicy(CacheClass.Never)` is declared on the controller, so the framework sends the
-  headers for every route.
-- `never` emits **`X-Skip-Cache: true`** and **`Cache-Control: no-store`**.
-- `user-scoped` responses rely on the proxy's caller-aware handling; the docs also refer to an
-  **`X-Cache-Allow`** header on cached-per-caller routes.
-- Every organization route sends **`X-Skip-Cache: true`**, writes included.
-
-## Names are never logged, and never used as keys
-
-- Organization names are **never written to logs**, on any path - create, rename, read.
-- They are also not part of a cache key: the key is the route plus the caller, never the content.
-
-## Cache and the security rules together
-
-| Security rule | Caching consequence |
+| Route | Invalidates |
 |---|---|
-| The role is **re-read from the DB on every request** | The role is **not** cached in application memory. The HTTP cache is per caller and short-lived, but the authorization decision is never served from a role cache |
-| The `404` is uniform | A non-member's `404` is not cached for a member, and a member's body is not served to a non-member |
-| Minimal responses | The cached body contains only the caller's own relationship - no member list, no other users' ids |
-| No `is_admin` bypass | A global admin's request is cached as **that admin's** entry, never as a shared organization entry |
-| Names are never logged | The cached body may contain the name, but no log entry does |
+| `POST /orgs.json` | The caller's `GET /orgs.json` |
+| `PATCH /orgs/:orgId.json` | `GET /orgs/:orgId.json` and the caller's `GET /orgs.json` |
 
-## Interaction with the frontend
+`PATCH` must invalidate the list too: `name` appears there, so a stale list would show the old name.
 
-- The UI's **context switcher** is built on `GET /orgs.json`, so a stale entry would show the
-  wrong organization list.
-- After a `POST` or `PATCH`, the client must not rely on a cached `GET` - the writes are
-  `never`, so the response is fresh, but the earlier list entry may still be cached for that caller.
-- On any `403`, the frontend refreshes its copy of the role, which is exactly the case where a
-  cached response would be misleading.
+Both writes are `never` for **storage**, and separately carry invalidation. Those are two different
+decisions: `never` means "do not store this response", invalidation means "drop what you stored
+because it is now wrong".
 
-## Consequences for a new route
+## What invalidates a role change
 
-Derived from the rules above. For a new organization route:
+A subtle case, and the reason the frontend has its own path.
 
-1. **Writes are `never`, always.** Never narrow a write to a cacheable class.
-2. **Reads that depend on the caller are `user-scoped`.**
-3. **Never `public`.** The narrowing is one-directional.
-4. **If the controller is owner-scoped, use `@OwnerScopedController(path)`** - do not mount the two
-   prefixes by hand and set the class separately.
-5. **Send `X-Skip-Cache: true` on every route**, including writes, because the proxy ignores the
-   HTTP method.
+If a user's role changes in the database, the cached `GET /orgs.json` may still show the old role.
 
-The failure mode to keep in mind: a `GET` that looks path-stable but returns anything
-caller-dependent. On this surface that is **both** `GET`s.
+| Layer | Behaviour |
+|---|---|
+| Backend | Reads the role fresh on **every** request - no server-side cache |
+| Proxy | Serves the cached `user-scoped` response until invalidated |
+| Frontend | On any `403`, `ApiClient` emits `permission:forbidden`; `forbiddenRefreshEffect` refetches the list once per burst |
+
+So the recovery path for a stale role is the **`403` itself**: the user tries a control, the backend
+refuses, the frontend refreshes, the controls update. See [Frontend](./frontend.md).
+
+There is no push and no TTL-based refresh documented in the frontend for this. The `403` is the
+signal.
+
+## Cache headers
+
+| Header | Emitted by | Meaning |
+|---|---|---|
+| `X-Skip-Cache` | `CachePolicyInterceptor` | Instructs the proxy not to store this response |
+| `Cache-Control` | `CachePolicyInterceptor` | The standard directive the proxy reads |
+| Per-caller token | `CacheTokenService` | Part of the key that makes `user-scoped` work |
+
+The exact header values are not documented. See the final section.
+
+## Rules when adding a route
+
+| Route kind | Cache class |
+|---|---|
+| Owner-scoped module read | Comes from `@OwnerScopedController()` - `user-scoped` |
+| Owner-scoped module write | Comes from the decorator; narrow to `never` if needed |
+| Organization-surface read | Inherently `user-scoped`. Declare `@CachePolicy(CacheClass.UserScoped)` |
+| Organization-surface write | `never`, plus `@CacheInvalidation()` |
+| Anything whose body depends on the caller | **`user-scoped`, never `public`** |
+
+The last row is the rule to apply when the others do not obviously fit: if the response would differ
+between two logged-in users at the same URL, it cannot be `public`.
+
+## What caching does not protect
+
+| Not covered | Why |
+|---|---|
+| A role changed mid-session reaching the UI immediately | The `403` path is what refreshes it |
+| A revoked membership | The next request answers `404`; the cached list may still name the organization |
+| Rate limiting | Unrelated (#84) |
+| Authorization | Caching is a **performance** layer. Every decision is re-made by the backend on every request |
+
+That last row is the one to keep in mind: a cached response never bypasses `OwnerContextGuard`,
+because the guard runs on the request that produces the response. A cache hit only means the
+response was already computed for **that same caller**.
 
 ## What is not documented in the repository
 
-The `docs/agents/` pages state the classes, the headers, the per-route assignment and the proxy
-rule. They do **not** contain:
+The project documentation states the three cache classes, the proxy's role, the invalidation
+decorator, the bundling inside `@OwnerScopedController()` and the rule that an owner-scoped route is
+never `public`. It does **not** contain:
 
-- the implementation of `@CachePolicy`, `CacheClass` or the interceptor that sets the headers;
-- the exact `X-Cache-Allow` value sent on the two `GET`s;
+- the concrete `X-Skip-Cache` and `Cache-Control` header values for each class;
+- how the proxy builds the `user-scoped` key, and whether `CacheTokenService` supplies a hash, a
+  session id or the user id;
 - the TTL of a `user-scoped` entry;
-- how Tent keys a `user-scoped` entry - by cookie, by a derived identity header, or otherwise. The
-  docs state that the entry is per caller; the mechanism is in the proxy's own documentation;
-- whether invalidation happens on write, or whether a write simply does not populate a cache entry;
-- the general caching strategy, which lives in `docs/agents/architecture/caching.md` - a page
-  outside this series and not reproduced here;
-- the behaviour of `Cache-Control: no-store` versus `X-Skip-Cache` when both are present.
+- the exact invalidation mechanism - pattern purge, tag-based, or per-URL;
+- the source of `organization-invalidation.ts`;
+- whether the invalidation is synchronous with the write or deferred;
+- whether a `public` cache class on an owner-scoped route is separately asserted by the coverage
+  spec - the documented triggers are a plain `@Body()` and a `public` **route**, not a cache class;
+- any cache warm-up or pre-population.
 
-Read `docs/agents/architecture/caching.md` and the Tent documentation for the authoritative version
-of the proxy mechanics. Nothing on this page is inferred beyond what the docs state.
+Read `backend/src/core/cache-*.ts`, `backend/src/auth/organization-invalidation.ts` and
+`docs/agents/architecture/caching.md` for the authoritative version. Nothing on this page is inferred
+beyond what the docs state.
