@@ -25,7 +25,7 @@ export default function App() {
 
   return (
     <OwnerContextProvider route={route}>
-      {AppHelper.render(route.page)}
+      {AppHelper.render(route)}
     </OwnerContextProvider>
   );
 }
