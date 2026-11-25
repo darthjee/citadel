@@ -77,6 +77,11 @@ describe('HashRouteResolver', () => {
       });
     });
 
+    it('does not read /todo/lists/new as a list id', () => {
+      expect(resolve('#/orgs/5/todo/lists/new').page).toBe('todo-list-new');
+      expect(resolve('#/todo/lists/new').page).not.toBe('todo-list-show');
+    });
+
     it('resolves #/orgs/new to org-new in Personal without reading an org id', () => {
       expect(resolve('#/orgs/new')).toEqual({ page: 'org-new', context: PERSONAL });
     });
