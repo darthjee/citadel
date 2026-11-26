@@ -122,7 +122,7 @@ services:
     env_file: .env
 
   citadel_placeholder_proxy:
-    image: darthjee/tent:0.10.4
+    image: darthjee/tent:1.2.0
     container_name: citadel_placeholder_proxy
     env_file: .env
     volumes:
@@ -140,14 +140,14 @@ services:
       - 0.0.0.0:3000:80
 
   proxy_tests:
-    image: darthjee/tent-test:0.10.4
+    image: darthjee/tent-test:1.2.0
     volumes:
       - ./proxy/extension:/var/www/html/extension
     command: vendor/bin/phpunit --bootstrap /var/www/html/extension/tests/bootstrap.php /var/www/html/extension/tests
 
   # PSR-12 PHPCS check for proxy/ (ruleset: root phpcs.xml; the same file Codacy reads)
   proxy_lint:
-    image: darthjee/tent-test:0.10.4
+    image: darthjee/tent-test:1.2.0
     volumes:
       - ./phpcs.xml:/repo/phpcs.xml:ro
       - ./proxy:/repo/proxy:ro
