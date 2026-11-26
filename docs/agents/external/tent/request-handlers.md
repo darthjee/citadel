@@ -11,7 +11,7 @@
 
 This means you get correct Host header handling and caching out of the box, with no extra configuration.
 
-Rule-level `middlewares` are appended *after* these built-in defaults. If you need a custom middleware to run *before* them (e.g. before `Host` header rewriting), use `prependMiddlewares` instead — see [Defining Rules](defining-rules.md) and [`default_proxy`](#default_proxy--recommended-proxy-handler).
+Rule-level `middlewares` are appended *after* these built-in defaults. If you need a custom middleware to run *before* them (e.g. before `Host` header rewriting), use `prependMiddlewares` instead — see [Defining Rules](defining-rules.md) and [Middleware Order](../../request-handlers.md#middleware-order).
 
 ```php
 Configuration::buildRule([
@@ -90,6 +90,7 @@ Configuration::buildRule([
 | Option     | Type     | Required | Description |
 |------------|----------|----------|-------------|
 | `location` | `string` | Yes      | Base directory for static files |
+| `conditional` | `bool` | No     | Default `false`. On `GET` only: add `ETag` / `Last-Modified` to `200` responses and answer matching `If-None-Match` / `If-Modified-Since` with an empty-body `304 Not Modified` — see [Conditional requests](../../request-handlers.md#conditional-requests) |
 
 ---
 
